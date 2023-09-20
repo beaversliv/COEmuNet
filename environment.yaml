@@ -1,0 +1,36 @@
+name: 
+channels:
+- conda-forge
+dependencies:
+- astroquery
+- breathe
+- cmake
+- h5py
+- healpy
+- ipywidgets
+- jupyterlab
+- jupyterlab-git
+- jupyterlab-plotly-extension
+- k3d
+- meshio=5.2
+- mpi4py
+- nbdime
+- nbsphinx
+- nodejs
+- numba
+- numpy=1.23
+- palettable
+- pandas
+- plotly
+- pytest
+- python=3.9
+- pyyaml
+- scipy
+- sphinx=4.4.0
+- sphinx-copybutton
+- sphinx_rtd_theme
+- tqdm
+- twine
+- vtk
+- yt
+
