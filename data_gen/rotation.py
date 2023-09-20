@@ -16,7 +16,7 @@ from tools       import *
 import math
 from mpi4py      import MPI
 
-lambda_file         = 'co.txt'
+lambda_file         = '~/physical_informed/data_gen/co.txt'
 nquads              = 31
 vpix = 300   # velocity pixel size [m/s], velocity step, difference between 2 channel maps, samller->close to central line
                   # play with it, to see the channel maps

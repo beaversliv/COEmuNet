@@ -19,7 +19,7 @@ import magritte.core      as magritte
 line = Line(
         species_name = "co",
         transition   = 0,
-        datafile     = "co.txt",
+        datafile     = "~/physical_informed/data_gen/co.txt",
         molar_mass   = 28.0
     )
 def data_gen(model_file):
