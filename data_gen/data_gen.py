@@ -87,18 +87,19 @@ def main():
 
     list1 = lists['r_models']
     # list2 = lists['datasets']
-    list1 = list1[:20]
-    datasets = [f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/pism_forward/Demo/dataset_{i}.hdf5' for i in range(20)]
-    nCO_dat,tmp_dat,vturb_dat,v_z_dat,img,frequencies = data_gen(list1[10903])
-    
-#     # start_time = time.time()
-    with h5.File(datasets, "w") as file:
-            file.create_dataset('frequencies',  data=frequencies)
-            file.create_dataset("CO",           data=nCO_dat)
-            file.create_dataset("temperature",  data=tmp_dat)
-            file.create_dataset("v_turbulence", data=vturb_dat)
-            file.create_dataset("velocity_z",   data=v_z_dat)
-            file.create_dataset('I',            data=img)
+    list1 = list1[10903*3:10903*3+20]
+    datasets = [f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/pism_forward/Demo/dataset_{i}.hdf5' for i in range(60,80)]
+
+    for idx in range(20):
+        nCO_dat,tmp_dat,vturb_dat,v_z_dat,frequencies,img = data_gen(list1[idx])
+    #     # start_time = time.time()
+        with h5.File(datasets[idx], "w") as file:
+                file.create_dataset('frequencies',  data=frequencies)
+                file.create_dataset("CO",           data=nCO_dat)
+                file.create_dataset("temperature",  data=tmp_dat)
+                file.create_dataset("v_turbulence", data=vturb_dat)
+                file.create_dataset("velocity_z",   data=v_z_dat)
+                file.create_dataset('I',            data=img)
 #     end_time = time.time()
 #     elapsed_time = end_time - start_time
 #     print("Writing dataset : {:.3f} mins".format(elapsed_time/60))
