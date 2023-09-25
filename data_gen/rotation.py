@@ -16,24 +16,24 @@ from tools       import *
 import math
 from mpi4py      import MPI
 
-lambda_file         = '~/physical_informed/data_gen/co.txt'
+lambda_file         = '/home/dc-su2/physical_informed/data_gen/co.txt'
 nquads              = 31
 vpix = 300   # velocity pixel size [m/s], velocity step, difference between 2 channel maps, samller->close to central line
                   # play with it, to see the channel maps
 
-def rotation_gen(model_file,rotated_model_file):
+def rotation_gen(model_file,rotated_model_file,r):
     # re-write some parameters for compating with new Magritte environment
-    # try:
-    #     magritte.Model(model_file)
-    # except RuntimeError:
-    # # re-write some parameters for compating with new Magritte environment
-    #     with h5.File(model_file, 'a') as file:
-    #         # Setting parameters.
-    #         file.attrs['use_scattering'] = 'false'
-    #         file.attrs['hnrays'] = 6
-    #         file.attrs['nlines'] = 1
-    #         file.attrs['nfreqs'] = 51
-    #     print(f'finish re-wirte: {model_file}')
+    try:
+        magritte.Model(model_file)
+    except RuntimeError:
+    # re-write some parameters for compating with new Magritte environment
+        with h5.File(model_file, 'a') as file:
+            # Setting parameters.
+            file.attrs['use_scattering'] = 'false'
+            file.attrs['hnrays'] = 6
+            file.attrs['nlines'] = 1
+            file.attrs['nfreqs'] = 51
+        print(f'finish re-wirte: {model_file}')
     # read info from old magritte model
     model = magritte.Model(model_file)
     position  = np.array(model.geometry.points.position)
@@ -47,7 +47,7 @@ def rotation_gen(model_file,rotated_model_file):
     ncells = model.parameters.npoints()
     n_boundary = model.parameters.nboundary()
     
-    # position_rotated = r.apply(position)
+    position_rotated = r.apply(position)
 
     r_model = magritte.Model ()                              # Create model object
     r_model.parameters.set_model_name         (rotated_model_file)   # Magritte model file
@@ -58,8 +58,8 @@ def rotation_gen(model_file,rotated_model_file):
     r_model.parameters.set_nlspecs            (1)            # Number of line species
     r_model.parameters.set_nquads             (nquads)       # Number of quadrature points
 
-    # r_model.geometry.points.position.set(position_rotated)
-    r_model.geometry.points.position.set(position)
+    r_model.geometry.points.position.set(position_rotated)
+    # r_model.geometry.points.position.set(position)
     r_model.geometry.points.velocity.set(velocity)
 
     r_model.geometry.points.  neighbors.set(  nbs)
