@@ -19,7 +19,7 @@ import magritte.core      as magritte
 line = Line(
         species_name = "co",
         transition   = 0,
-        datafile     = "~/physical_informed/data_gen/co.txt",
+        datafile     = "/home/dc-su2/physical_informed/data_gen/co.txt",
         molar_mass   = 28.0
     )
 def data_gen(model_file):
@@ -42,7 +42,7 @@ def data_gen(model_file):
     frequencies = torch.from_numpy(frequencies)
 
     position    = np.array(model.geometry.points.position)        # shape (427008,3)
-    velocity    = np.array(model.geometry.points.velocity)        # shape (427008,3)
+    velocity    = np.array(model.geometry.points.velocity)* constants.c.si.value        # shape (427008,3)
     temperature = np.array(model.thermodynamics.temperature.gas)  # shape (427008,)
     abundance   = np.array(model.chemistry.species.abundance)
     CO          = abundance[:,1]                                  # shape (427008,)
@@ -84,13 +84,12 @@ def main():
     name_lists = 'lists.json'
     with open(name_lists,'r') as file:
         lists = json.load(file)
-
     list1 = lists['r_models']
     # list2 = lists['datasets']
-    list1 = list1[10903*3:10903*3+20]
-    datasets = [f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/pism_forward/Demo/dataset_{i}.hdf5' for i in range(60,80)]
+    list1 = list1[:5]
+    datasets = [f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/pism_forward/Demo/dataset_{i}.hdf5' for i in range(5)]
 
-    for idx in range(20):
+    for idx in range(5):
         nCO_dat,tmp_dat,vturb_dat,v_z_dat,frequencies,img = data_gen(list1[idx])
     #     # start_time = time.time()
         with h5.File(datasets[idx], "w") as file:
