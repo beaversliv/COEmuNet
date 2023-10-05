@@ -1,9 +1,10 @@
 import os
 import numpy              as np
 import magritte.core      as magritte
-from scipy.interpolate    import griddata           # Grid interpolation
 from magritte.core        import ImageType, ImagePointPosition  # Image type, point position
 from astropy              import units,constants              # Unit conversions
+import scipy as sp
+# from scipy.interpolate    import griddata           # Grid interpolation
 def intensity(model):
     model.compute_spectral_discretisation ()
     model.compute_inverse_line_widths     ()
@@ -66,7 +67,7 @@ def intensity(model):
     zs = np.zeros((nfreqs, npix_x, npix_y))
     for f in range(nfreqs):
         # Nearest neighbor interpolate scattered image data
-        zs[f] = griddata(
+        zs[f] = sp.interpolate.griddata(
             (imx, imy),
             imI[:,f],
             (xs[None,:], ys[:,None]),
@@ -99,7 +100,7 @@ def model_find():
 
             model_files.append(model_file) 
     return model_files
-def path_rotations(model_files):
+def path_rotations(model_files,dir='Rotation_Dataset',type_='Original'):
     '''
     Generate path (folders) for rotated model files
     ---------
@@ -115,9 +116,9 @@ def path_rotations(model_files):
         # split path according to '/'
         dir_list = model_file.split('/')
         # change AMRVAC_3D to Rotation_Dataset
-        dir_list[7] = 'Rotation_Dataset'
+        dir_list[7] = dir
         # list, splited elements 
-        dir_list.insert(8,'Original')
+        dir_list.insert(8,type_)
         r_model_file = ('/').join(dir_list)
 
         dataset_file = f'{os.path.split(r_model_file)[0]}/dataset.hdf5'
@@ -129,3 +130,4 @@ def path_rotations(model_files):
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
     return r_model_files,dataset_files
+

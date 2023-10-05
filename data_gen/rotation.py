@@ -104,12 +104,12 @@ def main():
         r_model_file = r_model_files[idx]
 
         # Create a random rotation in radians around a random axis
-        # random_axis = np.random.rand(3)
-        # random_angles = np.random.uniform(0, 2 * np.pi)
-        # # Create a rotation object and get the rotation matrix
-        # r = Rotation.from_rotvec(random_angles * random_axis)
+        random_axis = np.random.rand(3)
+        random_angles = np.random.uniform(0, 2 * np.pi)
+        # Create a rotation object and get the rotation matrix
+        r = Rotation.from_rotvec(random_angles * random_axis)
 
-        r_model_file = rotation_gen(model_file,r_model_file)
+        r_model_file = rotation_gen(model_file,r_model_file,r)
 
 if __name__ == '__main__':
     main()
