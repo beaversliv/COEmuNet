@@ -6,6 +6,8 @@ from torch.autograd import Variable
 import h5py as h5
 import numpy as np
 import os
+import time
+import pickle
 import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
@@ -30,8 +32,8 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--epochs', type = int, default = 50)
-    parser.add_argument('--batch_size', type = int, default = 30)
+    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--batch_size', type = int, default = 32)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -54,17 +56,19 @@ config = parse_args()
 
 def get_data(path):
     with h5.File(path,'r') as sample:
-        x  = np.array(sample['input'])   # shape(80,4,128,128,128)
-        y =  np.array(sample['output'][:,:,:,15:16]) # shape(80,128,128,31)
+        x  = np.array(sample['input'])   # shape(1000,4,64,64,64)
+        y =  np.array(sample['output'][:,:,:,15:16]) # shape(1000,64,64,1)
     
     meta = {}
     
     x_t = np.transpose(x, (1, 0, 2, 3, 4))
-    for idx in [0, 1]:
+    for idx in [0]:
         meta[idx] = {}
         meta[idx]['mean'] = x_t[idx].mean()
         meta[idx]['std'] = x_t[idx].std()
         x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
+    idx = 1
+    x_t[idx] = x_t[idx]*1e+6
     
     for idx in [2, 3]:
         meta[idx] = {}
@@ -72,24 +76,30 @@ def get_data(path):
         meta[idx]['median'] = np.median(x_t[idx])
         x_t[idx] = np.log(x_t[idx])
         x_t[idx] = x_t[idx] - np.min(x_t[idx])
-        x_t[idx] = x_t[idx]/np.median(x_t[idx])
-    
+        x_t[idx] = x_t[idx]/np.max(x_t[idx])
+    y_v = y.reshape(-1)
+    y = np.where(y == 0, np.min(y_v[y_v != 0]), y)
     y = np.log(y)
     y = y-np.min(y)
-    y = y/np.median(y)
+    y = y/np.mean(y)
     
     return np.transpose(x_t, (1, 0, 2, 3, 4)), y.transpose(0,3,1,2)
 
-path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/pism_forward/Demo/data.hdf5'
+path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/Rotation_Dataset/Batches/test.hdf5'
 x, y = get_data(path)
-x = torch.Tensor(x)
-y = torch.Tensor(y)
-
-train_dataset = TensorDataset(x, y)
-
+xtr = x[:800]
+ytr = y[:800]
+xte = x[-200:]
+yte = y[-200:]
+xtr = torch.Tensor(xtr)
+ytr = torch.Tensor(ytr)
+xte = torch.Tensor(xte)
+yte = torch.Tensor(yte)
+train_dataset = TensorDataset(xtr, ytr)
+test_dataset = TensorDataset(xte, yte)
 ### torch data loader ###
 train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-test_dataloader = DataLoader(train_dataset, batch_size= 10, shuffle=True)
+test_dataloader = DataLoader(test_dataset, batch_size= 16, shuffle=True)
 
 ### Resnet ###
 class Conv_BN_Relu(nn.Module):
@@ -138,23 +148,23 @@ class Encoder(nn.Module):
         
         self.layers.append(residual_Block(4, 8, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
+        # self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         
         self.layers.append(residual_Block(8, 16, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
+        # self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
 
         self.layers.append(residual_Block(16, 32, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))        
+        # self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
         
-        self.layers.append(nn.MaxPool3d(2)) #if not 7*7*7
+        # self.layers.append(nn.MaxPool3d(2)) #if not 7*7*7
 
     def forward(self, x):   
         for idx in range(len(self.layers)):
             x = self.layers[idx](x)
         return  x
-    
+
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
@@ -170,7 +180,7 @@ class Net(nn.Module):
         
         in_channel = 64
         
-        for idx in range(4):
+        for idx in range(3):
             sub_seq = nn.ModuleList([nn.ConvTranspose2d(in_channel, int(in_channel/2), 4, 2, 
                                                        padding = 1),#, output_padding = 1),
                                      nn.BatchNorm2d(int(in_channel/2)),
@@ -208,7 +218,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ### set a model ###
 model = Net()
-pred_y = model.forward(x)
 model.to(device)   
 
 loss_object = nn.MSELoss()
@@ -230,7 +239,7 @@ def train(epoch):
             epoch, config['epochs'], epoch_loss))
     return epoch_loss
 
-### train step ###
+### test/val step ###
 def test(epoch):
     model.eval()
     P = []
@@ -246,25 +255,28 @@ def test(epoch):
         L.append(loss.detach().cpu().numpy())
     
     print('Test Epoch: {}/{} Loss: {:.4f}'.format(
-            epoch, 50, np.mean(L)))
+            epoch, config['epochs'], np.mean(L)))
     P = np.vstack(P)
     T = np.vstack(T)
     return P, T, L
 ### run ###
 def run():
     losses = []
+    vl     = []
     for epoch in range(config['epochs']):
         epoch_loss = train(epoch)
+        _,_,val_loss   = test(epoch)
         losses.append(epoch_loss)
-        
-    return losses
+        vl.append(np.mean(val_loss))
+    return losses,vl
 
 def main():
-    losses = run()
+    start = time.time()
+    losses,vl = run()
+    end = time.time()
+    print(f'running time:{(end-start)/60} mins')
     pred, target, _ = test(config['epochs'])
-    plt.plot(np.arange(config['epochs']),losses)
-    plt.savefig('/home/dc-su2/physical_informed/cnn/img/history.png')
-
+    print(pred.shape)
 
     for i in range(target.shape[0]):
         fig, axs = plt.subplots(1, 2)
@@ -274,6 +286,11 @@ def main():
         axs[1].set_title('prediction')
         plt.savefig('/home/dc-su2/physical_informed/cnn/img/ex{}.png'.format(i))
         plt.close()
+    
+    data = (losses, vl, pred, target)
+    # Save to a pickle file
+    with open("history.pkl", "wb") as pickle_file:
+        pickle.dump(data, pickle_file)
 
 if __name__ == '__main__':
     main()
