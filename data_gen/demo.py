@@ -50,8 +50,8 @@ def data_gen(model_file,radius,type_='or'):
     vturb2         = vturb2[indices_within_ball]
 
     if type_ == 'or':
+        # unrotated
         position = position
-        print('orginal')
     else:
         # Create a random rotation in radians around a random axis
         random_axis = np.random.rand(3)
@@ -61,7 +61,11 @@ def data_gen(model_file,radius,type_='or'):
         # Create a rotation object and get the rotation matrix
         r = Rotation.from_rotvec(random_angles * random_axis)
         position = r.apply(position)
-        print('rotated')
+        rotation_matrix = r.as_matrix()
+        # velocity = np.matmul(rotation_matrix.T,velocity.T)
+        # velocity = velocity.T
+        # simplify by (AB).T = B.T @ A.T  and (A.T).T = A
+        velocity = np.matmul(velocity,rotation_matrix)
 
     v_x = velocity[:,0]
     v_y = velocity[:,1]
@@ -107,7 +111,7 @@ line = Line(
         molar_mass   = 28.0
     )
 
-def main(type_='or'):
+def main(type_):
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
@@ -116,24 +120,28 @@ def main(type_='or'):
     with open(name_lists,'r') as file:
         lists = json.load(file)
     datasets   = lists['datasets']
-    radius     = lists['radius']
+    radius     = float(lists['radius'])
     model_files = model_find()
 
     if type_ == 'or':
         datasets = datasets[:10903]
+        
     elif type_ == 'r1':
         datasets = datasets[10903:10903*2]
+        
     else:
         datasets = datasets[10903*2:]
+        
     n_tasks    = len(datasets)
-    tasks_per_rank = int(n_tasks / nproc)
-    
+    # tasks_per_rank = int(n_tasks / nproc)
+    tasks_per_rank = math.ceil(n_tasks / nproc)
     start_index = rank*tasks_per_rank
     end_index = min(rank*tasks_per_rank + tasks_per_rank, n_tasks)
-
+    print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
     for idx in range(start_index,end_index):
-        nCO_dat,tmp_dat,vturb_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],radius)
+        nCO_dat,tmp_dat,vturb_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],radius,type_)
         path = datasets[idx]
+        print('writing', path)
         with h5.File(path, "w") as file:
             file.create_dataset('frequencies',  data=frequencies)
             file.create_dataset("CO",           data=nCO_dat)
