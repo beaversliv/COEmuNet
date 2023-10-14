@@ -13,11 +13,11 @@ rank  = comm.Get_rank()
 nproc = comm.Get_size()
 procname = MPI.Get_processor_name()
 
-name_lists = '/home/dc-su2/physical_informed/data_gen/lists.json'
+name_lists = '/home/dc-su2/physical_informed/data_gen/datasets.json'
 with open(name_lists,'r') as file:
     lists = json.load(file)
 datasets   = lists['datasets']
-
+random.shuffle(datasets)
 # Shuffle the file list on process 0
 if rank == 0:
     random.shuffle(datasets)
@@ -46,7 +46,7 @@ for idx,file in enumerate(process_file_list):
     X[idx] = x_i
     Y[idx] = img
     FREQS[idx] = freq
-with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/Rotation_Dataset/Batches/batch_{rank}.hdf5', 'w') as file:
+with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/batch_{rank}.hdf5', 'w') as file:
     file['input'] = X
     file['output']= Y
     file['nfreqs'] = FREQS

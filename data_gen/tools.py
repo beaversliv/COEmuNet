@@ -130,4 +130,24 @@ def path_rotations(model_files,dir='Rotation_Dataset',type_='Original'):
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
     return r_model_files,dataset_files
-
+def plot_cube_2D(cube):
+    """
+    Plot a slice along the third axis through a 3D cube.
+    """
+    vmin = cube.min().item()
+    vmax = cube.max().item()
+    def plot(z):
+        plt.figure(dpi=150)
+        plt.imshow(cube[:,:,z].T.data, vmin=vmin, vmax=vmax, origin='lower')
+    return interact(plot, z=(0,cube.shape[2]-1))
+# try:
+#         magritte.Model(model_file)
+#     except RuntimeError:
+#     # re-write some parameters for compating with new Magritte environment
+#         with h5.File(model_file, 'a') as file:
+#             # Setting parameters.
+#             file.attrs['use_scattering'] = 'false'
+#             file.attrs['hnrays'] = 6
+#             file.attrs['nlines'] = 1
+#             file.attrs['nfreqs'] = 51
+#         print(f'finish re-wirte: {model_file}')
