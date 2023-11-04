@@ -52,20 +52,21 @@ def data_gen(model_file,radius,type_='or'):
     if type_ == 'or':
         # unrotated
         position = position
+        velocity = velocity
     else:
         # Create a random rotation in radians around a random axis
         random_axis = np.random.rand(3)
+        random_axis /= np.linalg.norm(random_axis)
         random_angles = np.random.uniform(0, 2 * np.pi)
         # random_axis = np.array([0.0,0.0,1.0])
         # random_angles = np.pi/2
         # Create a rotation object and get the rotation matrix
         r = Rotation.from_rotvec(random_angles * random_axis)
         position = r.apply(position)
+
         rotation_matrix = r.as_matrix()
-        # velocity = np.matmul(rotation_matrix.T,velocity.T)
-        # velocity = velocity.T
-        # simplify by (AB).T = B.T @ A.T  and (A.T).T = A
-        velocity = np.matmul(velocity,rotation_matrix)
+        velocity = np.matmul(rotation_matrix,velocity.T)
+        velocity = velocity.T
 
     v_x = velocity[:,0]
     v_y = velocity[:,1]
@@ -103,7 +104,7 @@ def data_gen(model_file,radius,type_='or'):
     # print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
     # Avoid negative values (should probably avoid these earlier...)
     img = torch.abs(img)
-    return nCO_dat,tmp_dat,vturb_dat,v_z_dat,frequencies,img
+    return nCO_dat,tmp_dat,v_z_dat,frequencies,img
 line = Line(
         species_name = "co",
         transition   = 0,
@@ -139,14 +140,13 @@ def main(type_):
     end_index = min(rank*tasks_per_rank + tasks_per_rank, n_tasks)
     print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
     for idx in range(start_index,end_index):
-        nCO_dat,tmp_dat,vturb_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],radius,type_)
+        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],radius,type_)
         path = datasets[idx]
-        print('writing', path)
+        print(f'writing {path}\n {model_files[idx]}\n')
         with h5.File(path, "w") as file:
             file.create_dataset('frequencies',  data=frequencies)
             file.create_dataset("CO",           data=nCO_dat)
             file.create_dataset("temperature",  data=tmp_dat)
-            file.create_dataset("v_turbulence", data=vturb_dat)
             file.create_dataset("velocity_z",   data=v_z_dat)
             file.create_dataset('I',            data=img)
 
