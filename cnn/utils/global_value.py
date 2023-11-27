@@ -109,8 +109,8 @@ def load(file_paths):
 
     return vz_mean,vz_std,temp_min,temp_median,co_min,co_median,y_min,y_median
 def main():
-    file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/batch_{rank}.hsdf5' for rank in range(2)]
-    # file_paths = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/unrotate.hdf5']
+    # file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/batch_{rank}.hsdf5' for rank in range(2)]
+    file_paths = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/rotate_1200.hdf5']
     vz_mean,vz_std,temp_min,temp_median,co_min,co_median,y_min,y_median = load(file_paths)
     # vz_mean,vz_std = global_vz(file_paths, chunk_size=1000)
     # temp_min,temp_median = calculate_global_statistics(file_paths, chunk_size=1000,order=1,read_x_condition=True)
@@ -124,7 +124,7 @@ def main():
         'y': [y_min,y_median]
     }
     print('writing statistic values')
-    with open('/home/dc-su2/physical_informed/cnn/statistics.pkl','wb') as file:
+    with open('/home/dc-su2/physical_informed/cnn/rotate/rotate1200_statistics.pkl','wb') as file:
         pickle.dump(statistics,file)
 
 if __name__ == '__main__':

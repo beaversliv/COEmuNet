@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import torchvision.models as models
 ### Resnet ###
 class Conv_BN_Relu(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
@@ -49,12 +49,15 @@ class Encoder(nn.Module):
         self.layers.append(residual_Block(4, 8, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
+        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         
         self.layers.append(residual_Block(8, 16, kernel_size=3, stride=2, padding = 1, skip=True))
+        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
 
         self.layers.append(residual_Block(16, 32, kernel_size=3, stride=2, padding = 1, skip=True))
+        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
 
@@ -68,6 +71,27 @@ class Encoder(nn.Module):
             x = self.layers[idx](x)
         return  x
 
+class Decoder(nn.Module):
+    def __init__(self, in_channels=64, out_channels=1):
+        super(Decoder, self).__init__()
+        self.layers = nn.ModuleList()
+
+        # Example: Halving the channels and doubling the spatial dimension with each step
+        for i in range(3):
+            self.layers.append(nn.Conv2d(in_channels, int(in_channels / 2), kernel_size=3, stride=1,padding=1))
+            self.layers.append(nn.BatchNorm2d(int(in_channels / 2)))
+            self.layers.append(nn.ReLU())
+            self.layers.append(nn.Upsample(scale_factor=2, mode='nearest'))  # Upsampling
+            in_channels = int(in_channels/2)
+
+        # Final convolution to get the desired number of output channels (1 in this case)
+        self.layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
@@ -75,29 +99,12 @@ class Net(nn.Module):
         self.encoder1 = Encoder(1)
         self.encoder2 = Encoder(1)
         
-        self.to_lat = nn.Linear(32*4*4*4*3, 8*8*8)
-        self.to_dec = nn.Linear(8*8*8, 64*8*8) #64*8*8
-        # self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
-        # self.to_dec = nn.Linear(16*16*16,64*8*8)
-        self.decoder= nn.ModuleList()
+        # self.to_lat = nn.Linear(32*4*4*4*3, 8*8*8)
+        # self.to_dec = nn.Linear(8*8*8, 64*8*8) #64*8*8
+        self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
+        self.to_dec = nn.Linear(16*16*16,64*8*8)
+        self.decoder= Decoder(in_channels=64, out_channels=1)
         
-        in_channel = 64
-        
-        for idx in range(3):
-            sub_seq = nn.ModuleList([nn.ConvTranspose2d(in_channel, int(in_channel/2), 4, 2, 
-                                                       padding = 1),#, output_padding = 1)
-                                     nn.BatchNorm2d(int(in_channel/2)),
-                                     nn.ReLU(),
-                                    #  nn.ConvTranspose2d(int(in_channel/2),int(in_channel/2),3,stride=1,padding=1),
-                                    #  nn.BatchNorm2d(int(in_channel/2)),
-                                    #  nn.ReLU()
-                                    ])
-            self.decoder.append(sub_seq)
-            in_channel = int(in_channel/2)
-
-        sub_seq = nn.ModuleList([nn.Conv2d(in_channel, 1, 3, 
-                                                   padding = 1)])   
-        self.decoder.append(sub_seq)
         
     def forward(self, x):
         x0 = self.encoder0(x[:, 0:1, :, :, :])
@@ -116,9 +123,35 @@ class Net(nn.Module):
         x = x.view(-1, 64, 8, 8)
       
 	# shape (batch_size,64,8,8)
-        
-        for idx in range(len(self.decoder)):
-            for cidx in range(len(self.decoder[idx])):
-                x = self.decoder[idx][cidx](x)
-      
-        return x_latent, x
+        output = self.decoder(x)
+        return x_latent, output
+
+class VGGFeatures(torch.nn.Module):
+    def __init__(self):
+        super(VGGFeatures, self).__init__()
+        vgg_model = models.vgg16(pretrained=True).features
+        self.slice1 = torch.nn.Sequential()
+        self.slice2 = torch.nn.Sequential()
+        self.slice3 = torch.nn.Sequential()
+        self.slice4 = torch.nn.Sequential()
+        for x in range(4):
+            self.slice1.add_module(str(x), vgg_model[x])
+        for x in range(4, 9):
+            self.slice2.add_module(str(x), vgg_model[x])
+        for x in range(9, 16):
+            self.slice3.add_module(str(x), vgg_model[x])
+        for x in range(16, 23):
+            self.slice4.add_module(str(x), vgg_model[x])
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, X):
+        h = self.slice1(X)
+        h_relu1_2 = h
+        h = self.slice2(h)
+        h_relu2_2 = h
+        h = self.slice3(h)
+        h_relu3_3 = h
+        h = self.slice4(h)
+        h_relu4_3 = h
+        return h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3
