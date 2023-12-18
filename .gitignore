@@ -1,3 +1,6 @@
 *.out
 *.ipynb
 *.png
+*.pth
+*.pkl
+*.pyc
