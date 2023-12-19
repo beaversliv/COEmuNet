@@ -120,6 +120,9 @@ def loss_object(target, pred, use_freq_loss=False, use_perceptual_loss=False):
     # Mean Squared Error Loss
     mse_loss = nn.functional.mse_loss(pred, target)
     total_loss += mse_loss
+    # epsilon = 1e-7
+    # mse_loss = torch.mean(torch.abs(target-pred)/(target + epsilon))
+    # total_loss += mse_loss
 
     # Frequency Loss
     if use_freq_loss:

@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd import Variable
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.model          import Net,VGGFeatures
-from utils.loss           import mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import loss_object,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.focal_frequency_loss import FocalFrequencyLoss
 
 import h5py as h5
@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
-    parser.add_argument('--epochs', type = int, default = 200)
+    parser.add_argument('--epochs', type = int, default = 100)
     parser.add_argument('--batch_size', type = int, default = 16)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -80,7 +80,7 @@ def get_data(path):
     y = y/np.median(y)
     
     return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
-path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/rotate_1200.hdf5'
+path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate2400.hdf5'
 
 x, y = get_data(path2)
 xtr,xte = x[:1000],x[1000:]
@@ -96,7 +96,7 @@ test_dataset = TensorDataset(xte, yte)
 
 ### torch data loader ###
 train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-val_dataloader = DataLoader(test_dataset, batch_size= config['batch_size'], shuffle=True)
+val_dataloader = DataLoader(test_dataset, batch_size= 32, shuffle=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -110,17 +110,7 @@ model.to(device)
 # vgg.to(device)
 # vgg.eval()  # Important to set in evaluation mode!
 
-def loss_object(target,pred):
-    mse_loss = nn.functional.mse_loss(pred, target)
-    freq_loss_scale = 1.0
-    # target_freq = torch.fft.fft2(target)
-    # pred_freq = torch.fft.fft2(pred)
-    # freq_loss = torch.mean(torch.abs(target_freq - pred_freq)**2)
-    ffl = FocalFrequencyLoss(loss_weight=1.0,alpha=1.0)
-    freq_loss = ffl(target,pred)
-    loss = mse_loss + freq_loss_scale * freq_loss
 
-    return loss
 optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 #setp_size_up = [2-10] * (10903/16)
 # scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0001, max_lr=0.1,step_size_up=1500,mode='triangular',cycle_momentum=False)
@@ -140,7 +130,7 @@ def train(epoch):
         # generated_features = vgg(output)
         # target_features    = vgg(target)
         # loss = perceptual_loss(generated_features, target_features)
-        loss = loss_object(target,output)
+        loss = loss_object(target, output, use_freq_loss=True, use_perceptual_loss=False)
 
         loss.backward()
         optimizer.step()
@@ -160,7 +150,7 @@ def validation(epoch):
         for bidx,samples in enumerate(val_dataloader):
             data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
             latent,output = model(data)
-            loss = loss_object(output,target)
+            loss = loss_object(target, output, use_freq_loss=True, use_perceptual_loss=False)
             val_loss += loss.detach().cpu().numpy()
     # Calculate average loss over all batches
     avg_val_loss = val_loss / len(val_dataloader)
@@ -177,7 +167,7 @@ def test(epoch):
     for bidx, samples in enumerate(val_dataloader):
         data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
         latent, pred = model(data)
-        loss = loss_object(target, pred)
+        loss = loss_object(target, pred, use_freq_loss=True, use_perceptual_loss=False)
         
         P.append(pred.detach().cpu().numpy())
         T.append(target.detach().cpu().numpy())
