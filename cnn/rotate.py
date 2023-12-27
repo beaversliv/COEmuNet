@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--epochs', type = int, default = 200)
     parser.add_argument('--batch_size', type = int, default = 32)
     parser.add_argument('--lr', type = float, default = 2e-4)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -60,8 +60,8 @@ def parse_args():
 config = parse_args()
 # file paths for train, vali and test
 # file paths for train, vali and test
-file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/rotate12000_statistics.pkl'
-file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate12000_{i}.hdf5' for i in range(5)]
+file_statistics = '/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/rotate12000_statistics.pkl'
+file_paths = [f'/data/astro1/ss1421/physical_forward/cnn/Batches/rotate12000_{i}.hdf5' for i in range(5)]
 train_file_path = file_paths[:4]
 vali_file_path  = file_paths[4:]
 
@@ -145,9 +145,9 @@ def main():
     print('SSIM: {:.4f}'.format(avg_ssim))
     data = (losses, vl, pred, target)
     # Save to a pickle file
-    with open("/home/dc-su2/physical_informed/cnn/rotate/results/history.pkl", "wb") as pickle_file:
+    with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/results/history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
-    torch.save(model,'/home/dc-su2/physical_informed/cnn/rotate/results/model.pth')
+    torch.save(model,'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/results/model.pth')
 
     for i in range(0,1000,50):
         fig, axs = plt.subplots(1, 2,figsize=(12, 5))
@@ -158,7 +158,7 @@ def main():
         im2 = axs[1].imshow(pred[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
         axs[1].set_title('prediction')
         fig.colorbar(im2,ax=axs[1])
-        plt.savefig('/home/dc-su2/physical_informed/cnn/rotate/results/img/ex{}.png'.format(i))
+        plt.savefig('/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/results/img/ex{}.png'.format(i))
         plt.close()
 
 if __name__ == '__main__':
