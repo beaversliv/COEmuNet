@@ -1,11 +1,9 @@
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd import Variable
-from utils.dataloader     import CustomTransform,IntensityDataset
-from utils.model          import Net,VGGFeatures
+
+from utils.so3_model      import steerabelNet
 from utils.loss           import loss_object,mean_absolute_percentage_error, calculate_ssim_batch
-from utils.focal_frequency_loss import FocalFrequencyLoss
 
 import h5py as h5
 import numpy as np
@@ -80,7 +78,7 @@ def get_data(path):
     y = y/np.median(y)
     
     return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
-path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate2400.hdf5'
+path2 = '/data/astro1/ss1421/physical_forward/cnn/Batches/rotate1200.hdf5'
 
 x, y = get_data(path2)
 xtr,xte = x[:1000],x[1000:]
@@ -101,7 +99,7 @@ val_dataloader = DataLoader(test_dataset, batch_size= 32, shuffle=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ### set a model ###
-model = Net()
+model = steerabelNet()
 # model = nn.DataParallel(model,device_ids=[0,1])
 model.to(device)
 
