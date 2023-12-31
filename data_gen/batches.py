@@ -19,7 +19,7 @@ with open(name_lists,'r') as file:
     lists = json.load(file)
 samples = lists['datasets']
 # randomly select 12000 samples from dataset
-datasets = random.sample(samples,12000)
+datasets = random.sample(samples,24000)
 
 segment_size = 2400
 
@@ -44,7 +44,7 @@ for idx,file in enumerate(process_file_list):
     X[idx] = x_i
     Y[idx] = img
     FREQS[idx] = freq
-with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/rotate12000_{rank}.hdf5', 'w') as file:
+with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate24000_{rank}.hdf5', 'w') as file:
     file['input'] = X
     file['output']= Y
     file['nfreqs'] = FREQS
