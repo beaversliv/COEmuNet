@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
     parser.add_argument('--epochs', type = int, default = 200)
-    parser.add_argument('--batch_size', type = int, default = 16)
+    parser.add_argument('--batch_size', type = int, default = 32)
     parser.add_argument('--lr', type = float, default = 1e-4)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -67,10 +67,10 @@ test_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-exam
 
 custom_transform = CustomTransform(file_statistics)
 train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
-train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
+train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
 
 vali_dataset= IntensityDataset(vali_file_path,transform=custom_transform)
-vali_dataloader = DataLoader(vali_dataset, batch_size=config['batch_size'], shuffle=True)
+vali_dataloader = DataLoader(vali_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
 
 test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
 test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=True)
@@ -79,7 +79,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ### set a model ###
 model = Net()
-# model = nn.DataParallel(model,device_ids=[0,1,2])
+model = nn.DataParallel(model,device_ids=[0,1])
 model.to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], weight_decay=1e-2, betas=(0.9, 0.999))
