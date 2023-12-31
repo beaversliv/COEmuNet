@@ -49,17 +49,17 @@ class Encoder(nn.Module):
         self.layers.append(residual_Block(4, 8, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
+        # self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         
         self.layers.append(residual_Block(8, 16, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
+        # self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
 
         self.layers.append(residual_Block(16, 32, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
+        # self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
 
         # self.layers.append(residual_Block(32, 64, kernel_size=3, stride=2, padding = 1, skip=True))
         # self.layers.append(residual_Block(64, 64, kernel_size=3, stride=1, padding = 'same', skip=False))
@@ -101,8 +101,8 @@ class Net(nn.Module):
         
         # self.to_lat = nn.Linear(32*4*4*4*3, 8*8*8)
         # self.to_dec = nn.Linear(8*8*8, 64*8*8) #64*8*8
-        self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
-        self.to_dec = nn.Linear(16*16*16,64*8*8)
+        self.to_lat = nn.Linear(32*4*4*4*3,8*8*8)
+        self.to_dec = nn.Linear(8*8*8,64*8*8)
         self.decoder= Decoder(in_channels=64, out_channels=1)
         
         
