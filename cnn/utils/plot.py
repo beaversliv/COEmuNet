@@ -32,3 +32,17 @@ def show(img_data,path):
     # fig.text(0.5, 0.02, 'Shared X-axis Label', ha='center', va='center', fontsize=12)
     # fig.text(0.02, 0.5, 'Shared Y-axis Label', ha='center', va='center', rotation='vertical', fontsize=12)
     plt.show()
+
+
+def img_plt(target,pred):
+    for i in range(0,200,10):
+        fig, axs = plt.subplots(1, 2,figsize=(12, 5))
+        im1 = axs[0].imshow(target[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
+        axs[0].set_title('target')
+        fig.colorbar(im1,ax=axs[0])
+
+        im2 = axs[1].imshow(pred[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
+        axs[1].set_title('prediction')
+        fig.colorbar(im2,ax=axs[1])
+        plt.savefig('/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/img/ex{}.png'.format(i))
+        plt.close()

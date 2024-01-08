@@ -8,6 +8,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 from utils.so3_model      import ClsSO3Net
 from utils.loss           import loss_object,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.plot           import img_plt
 
 import h5py as h5
 import numpy as np
@@ -29,8 +30,7 @@ if torch.cuda.is_available():
 else:
     print("No GPU available, using CPU.")
 np.random.seed(1234)
-torch.manual_seed(1234)  
-
+torch.manual_seed(1234) 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
@@ -56,9 +56,6 @@ def parse_args():
             ])
     
     return config
-
-config = parse_args()
-
 
 def get_data(path):
     sample = h5.File(path,'r')
@@ -90,53 +87,9 @@ def get_data(path):
     y = y/np.median(y)
     
     return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
-path2 = '/data/astro1/ss1421/physical_forward/cnn/Batches/rotate2400.hdf5'
-
-x, y = get_data(path2)
-xtr,xte = x[:2000],x[2000:]
-ytr,yte = y[:2000],y[2000:]
-
-xtr = torch.Tensor(xtr)
-ytr = torch.Tensor(ytr)
-xte = torch.Tensor(xte)
-yte = torch.Tensor(yte)
-
-train_dataset = TensorDataset(xtr, ytr)
-test_dataset = TensorDataset(xte, yte)
-
-### torch data loader ###
-train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-val_dataloader = DataLoader(test_dataset, batch_size= 4, shuffle=True)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-### set a model ###
-# def count_parameters(model):
-#     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-# def model_memory_size(model):
-#     param_size = 0
-#     for param in model.parameters():
-#         param_size += param.nelement() * param.element_size()
-#     buffer_size = 0
-#     for buffer in model.buffers():
-#         buffer_size += buffer.nelement() * buffer.element_size()
-#     total_size = param_size + buffer_size
-#     return total_size
-
-# total_size = model_memory_size(model)
-# print(f"Model size: {total_size / 1024 / 1024:.2f} MB")
-# Model size: 636.90 MB
-
-# num_params = count_parameters(model)
-# print(f"Number of parameters: {num_params}")
-# Number of parameters: 142767718
-
-model = ClsSO3Net()
-model.to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
 ### train step ###
-def train(epoch):
+def train(model,train_dataloader,optimizer,config,device,epoch):
     total_loss = 0.
     model.train()
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof: 
@@ -158,29 +111,12 @@ def train(epoch):
                 epoch, config['epochs'], epoch_loss))
     return epoch_loss
 
-### vali step ###
-def validation(epoch):
-    model.eval()
-    val_loss = 0
-    with torch.no_grad():
-        for bidx,samples in enumerate(val_dataloader):
-            data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
-            latent,output = model(data)
-            loss = loss_object(target, output, use_freq_loss=True, use_perceptual_loss=False)
-            val_loss += loss.detach().cpu().numpy()
-    # Calculate average loss over all batches
-    avg_val_loss = val_loss / len(val_dataloader)
-    print('Val Epoch: {}/{} Loss: {:.4f}\n'.format(
-            epoch, config['epochs'], avg_val_loss))
-    return avg_val_loss
-
-### test step ###
-def test(epoch):
+def test(model,test_dataloader,device,config,epoch):
     model.eval()
     P = []
     T = []
     L = []
-    for bidx, samples in enumerate(val_dataloader):
+    for bidx, samples in enumerate(test_dataloader):
         data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
         latent, pred = model(data)
         loss = loss_object(target, pred, use_freq_loss=True, use_perceptual_loss=False)
@@ -193,50 +129,97 @@ def test(epoch):
             epoch, config["epochs"], np.mean(L)))
     P = np.vstack(P)
     T = np.vstack(T)
-    return P, T, L
+    return P, T, np.mean(L)
 
 ### run ###
-def run():
+def run(model,train_dataloader,test_dataloader,optimizer,device,config):
     tr_losses = []
     vl_losses = []
     for epoch in tqdm(range(config['epochs'])):
-        epoch_loss = train(epoch)
+        epoch_loss = train(model,train_dataloader,optimizer,config,device,epoch)
         torch.cuda.empty_cache() # Clear cache after training
         
-        val_loss   = validation(epoch)
+        _,_,val_loss   = test(model,test_dataloader,device,config,epoch)
         torch.cuda.empty_cache()  # Clear cache after evaluation
         tr_losses.append(epoch_loss)
         vl_losses.append(val_loss)
     return tr_losses,vl_losses
 
+def ddp_run(rank, world_size, model,device,config,train_dataloader, val_dataloader,optimizer):
+    # Setup for DDP
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    ddp_model = DDP(model, device_ids=[rank])
+
+    tr_losses, vl_losses = run(ddp_model, train_dataloader, val_dataloader, loss_object, optimizer, config, device)
+    if rank == 0:
+        gathered_tr_losses = [torch.zeros_like(tr_losses) for _ in range(world_size)]
+        gathered_vl_losses = [torch.zeros_like(vl_losses) for _ in range(world_size)]
+        dist.gather(tensor=tr_losses, gather_list=gathered_tr_losses, dst=0)
+        dist.gather(tensor=vl_losses, gather_list=gathered_vl_losses, dst=0)
+         # Combine data from all processes
+        combined_tr_losses = torch.cat(gathered_tr_losses).tolist()
+        combined_vl_losses = torch.cat(gathered_vl_losses).tolist()
+        data = (combined_tr_losses,combined_vl_losses)
+
+        with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
+            pickle.dump(data, pickle_file)
+    else:
+        # Other processes send their data
+        dist.gather(tensor=tr_losses, gather_list=None, dst=0)
+        dist.gather(tensor=vl_losses, gather_list=None, dst=0)
+    # Cleanup
+    dist.destroy_process_group()
+    if rank == 0:
+        return combined_tr_losses, combined_vl_losses
+
 def main():
+    config = parse_args()
+    path2 = '/data/astro1/ss1421/physical_forward/cnn/Batches/rotate2400.hdf5'
+    x, y = get_data(path2)
+    xtr,xte = x[:2000],x[2000:]
+    ytr,yte = y[:2000],y[2000:]
+
+    xtr = torch.Tensor(xtr)
+    ytr = torch.Tensor(ytr)
+    xte = torch.Tensor(xte)
+    yte = torch.Tensor(yte)
+
+    train_dataset = TensorDataset(xtr, ytr)
+    test_dataset = TensorDataset(xte, yte)
+
+    ### torch data loader ###
+    train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size= 4, shuffle=True)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
+    model = ClsSO3Net()
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
+
+    ### start training ###
     start = time.time()
-    tr_losses,vl_losses = run()
+    world_size = torch.cuda.device_count()
+    mp.spawn(ddp_run, args=(world_size, model, device, config, train_dataloader, test_dataloader, optimizer), nprocs=world_size, join=True)
     end = time.time()
+
     print(f'running time:{(end-start)/60} mins')
+    
+    
+    ### validation ###
     pred, target, _ = test(config['epochs'])
+    pred_targ = (pred, target)
+
+    with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "rb") as pickle_file:
+        losses = pickle.load(pickle_file)
+    
+    losses.update(pred_targ)
+    with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
+        pickle.dump(losses, pickle_file)
+
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
     avg_ssim = calculate_ssim_batch(target,pred)
     print('SSIM: {:.4f}'.format(avg_ssim))
-
-    data = (tr_losses,vl_losses, pred, target)
-    # Save to a pickle file
-    with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
-    # torch.save(model,'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/model.pth')
-
-    for i in range(0,200,10):
-        fig, axs = plt.subplots(1, 2,figsize=(12, 5))
-        im1 = axs[0].imshow(target[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
-        axs[0].set_title('target')
-        fig.colorbar(im1,ax=axs[0])
-
-        im2 = axs[1].imshow(pred[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
-        axs[1].set_title('prediction')
-        fig.colorbar(im2,ax=axs[1])
-        plt.savefig('/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/img/ex{}.png'.format(i))
-        plt.close()
 
 if __name__ == '__main__':
     main()

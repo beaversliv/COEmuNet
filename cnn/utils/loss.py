@@ -156,7 +156,7 @@ def mean_absolute_percentage_error(true,pred):
     median_error = np.median(np.abs((true - pred) / true))*100
     return mean_error, median_error
 
-def calculate_ssim_batch(pred, target):
+def calculate_ssim_batch(target,pred):
     # Calculate SSIM for each image in the batch
     batch_size = pred.shape[0]
     ssim_scores = []
@@ -165,7 +165,7 @@ def calculate_ssim_batch(pred, target):
         target_img = target[i,0,:,:] #(64,64,1)
 
         # Calculate SSIM, assuming multichannel (color) images
-        score = ssim(pred_img, target_img, data_range=target_img.max() - target_img.min())
+        score = ssim(target_img,pred_img, data_range=target_img.max() - target_img.min())
         ssim_scores.append(score)
 
     # Average SSIM over the batch
