@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
+
 ### Resnet ###
 class Conv_BN_Relu(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
@@ -49,17 +50,17 @@ class Encoder(nn.Module):
         self.layers.append(residual_Block(4, 8, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
+        # self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         
         self.layers.append(residual_Block(8, 16, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
+        # self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
 
         self.layers.append(residual_Block(16, 32, kernel_size=3, stride=2, padding = 1, skip=True))
         self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
         self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
+        # self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
 
         # self.layers.append(residual_Block(32, 64, kernel_size=3, stride=2, padding = 1, skip=True))
         # self.layers.append(residual_Block(64, 64, kernel_size=3, stride=1, padding = 'same', skip=False))

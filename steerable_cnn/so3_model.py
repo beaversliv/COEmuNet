@@ -78,7 +78,7 @@ class steerableResBlock(nn.EquivariantModule):
 
         assert input.type == self.in_type
         output = self.skip(self.downsample(input)) + self.res_block(input) 
-        # print(output.shape)
+        print(output.shape)
         return output
 
     def evaluate_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
@@ -215,7 +215,7 @@ class steerabelNet(torch.nn.Module):
         self.encoder1 = steerablEncoder(res_features = '2_96', init = 'delta')
         self.encoder2 = steerablEncoder(res_features = '2_96', init = 'delta')
         
-        self.to_lat = torch.nn.Linear(160*8*8*8*3,16*16*16)
+        self.to_lat = torch.nn.Linear(160*2*2*2*3,16*16*16)
         self.to_dec = torch.nn.Linear(16*16*16,64*8*8)
         self.decoder= steerableDecoder(in_channels=64, out_channels=1)
         
@@ -243,6 +243,24 @@ class steerabelNet(torch.nn.Module):
 	# shape (batch_size,64,8,8)
         output = self.decoder(x)
         return x_latent, output
+
+# class steerableCnn(torch.nn.Module):
+#     def __init__(self):
+#         super(steerableCnn.self).__init__()
+#         self.r3_act = gspaces.rot3dOnR3(self.freq)
+
+#         self.G: SO3 = self.r3_act.fibergroup
+#         in_type = nn.FieldType(self.r3_act, [self.r3_act.trivial_repr])
+#         self.input_type = in_type
+
+#         activation1 = nn.FourierELU(self.r3_act, 8, irreps=self.G.bl_irreps(3), N=16, inplace=True)
+#         out_type = activation1.in_type
+#         self.block1 = nn.SequentialModule(
+#             nn.R3Conv(in_type, out_type, kernel_size=7, padding=1, bias=False),
+#             nn.IIDBatchNorm3d(out_type),
+#             activation1,
+#         )
+
 
 class ClsSO3VoxConvModel(torch.nn.Module):
     def __init__(self,freq:int,scale:int):
