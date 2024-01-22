@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
+from collections import namedtuple
 
 ### Resnet ###
 class Conv_BN_Relu(nn.Module):
@@ -44,22 +45,22 @@ class Encoder(nn.Module):
     def __init__(self, in_channels):
         super(Encoder,self).__init__()
         self.layers =  nn.ModuleList()
-        self.layers.append(Conv_BN_Relu(in_channels, 4, kernel_size=3, stride=1, padding = 0))
-        self.layers.append(nn.MaxPool3d(2))
+        self.layers.append(Conv_BN_Relu(in_channels, 4, kernel_size=3, stride=1, padding = 0)) # [batch, 4, 62, 62, 62]
+        self.layers.append(nn.MaxPool3d(2))                                                    # [batch, 4, 31, 31, 31]
         
-        self.layers.append(residual_Block(4, 8, kernel_size=3, stride=2, padding = 1, skip=True))
-        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
+        self.layers.append(residual_Block(4, 8, kernel_size=3, stride=2, padding = 1, skip=True)) # [batch, 8, 16, 16, 16]
+        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False)) # [batch, 8, 16, 16, 16]
+        self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False)) # [batch, 8, 16, 16, 16]
         # self.layers.append(residual_Block(8, 8, kernel_size=3, stride=1, padding = 'same', skip=False))
         
-        self.layers.append(residual_Block(8, 16, kernel_size=3, stride=2, padding = 1, skip=True))
-        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))
+        self.layers.append(residual_Block(8, 16, kernel_size=3, stride=2, padding = 1, skip=True))        # [batch, 16, 8,8,8]
+        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False)) # [batch, 16, 8,8,8]
+        self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False)) # [batch, 16, 8,8,8]
         # self.layers.append(residual_Block(16, 16, kernel_size=3, stride=1, padding = 'same', skip=False))        
 
-        self.layers.append(residual_Block(16, 32, kernel_size=3, stride=2, padding = 1, skip=True))
-        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
-        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
+        self.layers.append(residual_Block(16, 32, kernel_size=3, stride=2, padding = 1, skip=True)) # [batch, 32, 4,4,4]
+        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False)) # [batch, 32, 4,4,4]
+        self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False)) # [batch, 32, 4,4,4]
         # self.layers.append(residual_Block(32, 32, kernel_size=3, stride=1, padding = 'same', skip=False))
 
         # self.layers.append(residual_Block(32, 64, kernel_size=3, stride=2, padding = 1, skip=True))
@@ -127,32 +128,3 @@ class Net(nn.Module):
         output = self.decoder(x)
         return x_latent, output
 
-class VGGFeatures(torch.nn.Module):
-    def __init__(self):
-        super(VGGFeatures, self).__init__()
-        vgg_model = models.vgg16(pretrained=True).features
-        self.slice1 = torch.nn.Sequential()
-        self.slice2 = torch.nn.Sequential()
-        self.slice3 = torch.nn.Sequential()
-        self.slice4 = torch.nn.Sequential()
-        for x in range(4):
-            self.slice1.add_module(str(x), vgg_model[x])
-        for x in range(4, 9):
-            self.slice2.add_module(str(x), vgg_model[x])
-        for x in range(9, 16):
-            self.slice3.add_module(str(x), vgg_model[x])
-        for x in range(16, 23):
-            self.slice4.add_module(str(x), vgg_model[x])
-        for param in self.parameters():
-            param.requires_grad = False
-
-    def forward(self, X):
-        h = self.slice1(X)
-        h_relu1_2 = h
-        h = self.slice2(h)
-        h_relu2_2 = h
-        h = self.slice3(h)
-        h_relu3_3 = h
-        h = self.slice4(h)
-        h_relu4_3 = h
-        return h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3
