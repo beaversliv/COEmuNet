@@ -110,20 +110,13 @@ class Trainer:
         self.model.train()
          
         for bidx, samples in enumerate(self.train_dataloader):
-            start = time.time()
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
             latent,output = self.model(data)
             loss = self.loss_object(target, output)
-            print(target.shape)
-            print(output.shape)
-
             loss.backward()
             self.optimizer.step()
             total_loss += loss.detach().cpu().numpy()
-            batch_train = time.time() - start
-            print(f'one batch train time: {batch_train}')
-            sys.exit()
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
 
         return epoch_loss
