@@ -3,6 +3,8 @@ import torch.nn as nn
 import numpy as np
 # Structural Similarity Index Measure (SSIM) 
 from skimage.metrics import structural_similarity as ssim
+from collections import namedtuple
+import torchvision.models as models
 # version adaptation for PyTorch > 1.7.1
 IS_HIGH_VERSION = tuple(map(int, torch.__version__.split('+')[0].split('.'))) > (1, 7, 1)
 if IS_HIGH_VERSION:
@@ -112,34 +114,86 @@ class FocalFrequencyLoss(nn.Module):
 
         # calculate focal frequency loss
         return self.loss_formulation(pred_freq, target_freq, matrix) * self.loss_weight
+
+class VGGFeatures(torch.nn.Module):
+    def __init__(self):
+        super(VGGFeatures, self).__init__()
+        vgg_model = models.vgg16(pretrained=True).features
+        self.slice1 = torch.nn.Sequential()
+        self.slice2 = torch.nn.Sequential()
+        self.slice3 = torch.nn.Sequential()
+        self.slice4 = torch.nn.Sequential()
+        for x in range(4):
+            self.slice1.add_module(str(x), vgg_model[x])
+        for x in range(4, 9):
+            self.slice2.add_module(str(x), vgg_model[x])
+        for x in range(9, 16):
+            self.slice3.add_module(str(x), vgg_model[x])
+        for x in range(16, 23):
+            self.slice4.add_module(str(x), vgg_model[x])
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, X):
+        h = self.slice1(X)
+        h_relu1_2 = h
+        h = self.slice2(h)
+        h_relu2_2 = h
+        h = self.slice3(h)
+        h_relu3_3 = h
+        h = self.slice4(h)
+        h_relu4_3 = h
+        vgg_outputs = namedtuple("VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
+        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
+        return out
     
-def loss_object(target, pred, use_freq_loss=False, use_perceptual_loss=False):
-    # Initialize total loss
-    total_loss = 0.0
+class ResNetFeatures(nn.Module):
+    def __init__(self):
+        super(ResNetFeatures, self).__init__()
+        resnet18 = models.resnet18(pretrained=True).eval()
+        self.features = nn.Sequential(*list(resnet18.children())[:-2])
 
-    # Mean Squared Error Loss
-    mse_loss = nn.functional.mse_loss(pred, target)
-    total_loss += mse_loss
-    # epsilon = 1e-7
-    # mse_loss = torch.mean(torch.abs(target-pred)/(target + epsilon))
-    # total_loss += mse_loss
+    def forward(self, x):
+        return self.features(x)
+    
+class Lossfunction(nn.Module):
+    def __init__(self, pretrained_model,use_freq_loss=False,use_perceptual_loss=False,mse_loss_scacle = 1.0,freq_loss_scale=1.0, perceptual_loss_scale=1.0):
+        super(Lossfunction, self).__init__()
+        self.pretrained_model      = pretrained_model
+        self.use_freq_loss         = use_freq_loss
+        self.use_perceptual_loss   = use_perceptual_loss
+        self.mse_loss_scacle       = mse_loss_scacle
+        self.freq_loss_scale       = freq_loss_scale
+        self.perceptual_loss_scale = perceptual_loss_scale
+    def forward(self,target,pred):
+        # Mean Squared Error Loss
+        mse_loss = self.mse_loss_scacle * nn.functional.mse_loss(pred, target)
+        total_loss = mse_loss
 
-    # Frequency Loss
-    if use_freq_loss:
-        freq_loss_scale = 1.0
+        # Frequency Loss
+        if self.use_freq_loss:
+            freq_loss = self.calculate_freq_loss(target,pred)
+            total_loss += self.freq_loss_scale * freq_loss
+        # Perceptual Loss
+        if self.use_perceptual_loss:
+            perceptual_loss = self.calculate_perceptual_loss(target,pred)
+            total_loss += self.perceptual_loss_scale * perceptual_loss
+        return total_loss
+    
+    def calculate_freq_loss(self,target,pred):
         target_freq = torch.fft.fft2(target)
         pred_freq = torch.fft.fft2(pred)
-        freq_loss = torch.mean(torch.abs(target_freq - pred_freq))
-        total_loss += freq_loss_scale * freq_loss
+        return torch.mean(torch.abs(target_freq - pred_freq))
+    def calculate_perceptual_loss(self,target,pred):
+        # repeat the grayscale channel to create a 3-channel input
+        pred   = pred.repeat(1,3,1,1)
+        target = target.repeat(1,3,1,1)
+        generated_features = self.pretrained_model(pred)
+        target_features = self.pretrained_model(target)
+        # perceptual_loss = torch.stack([nn.functional.mse_loss(gf, tf) for gf, tf in zip(generated_features, target_features)]).mean()
+        perceptual_loss = nn.functional.mse_loss(generated_features, target_features)
 
-    # Perceptual Loss
-    if use_perceptual_loss:
-        perceptual_loss_scale = 1.0
-        # Assuming `generated_features` and `target_features` are defined or passed as arguments
-        perceptual_loss = torch.stack([nn.functional.mse_loss(gf, tf) for gf, tf in zip(generated_features, target_features)]).mean()
-        total_loss += perceptual_loss_scale * perceptual_loss
-
-    return total_loss
+        return perceptual_loss
 
 ### Define the Perceptual Loss Function ###
 def perceptual_loss(generated_features, target_features):

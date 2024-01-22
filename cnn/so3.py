@@ -1,13 +1,15 @@
 import torch
-from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.autograd import Variable
+from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+
 from torch.profiler import profile, record_function, ProfilerActivity
 
 from utils.so3_model      import ClsSO3Net
-from utils.loss           import loss_object,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt
 
 import h5py as h5
@@ -20,6 +22,7 @@ import pickle
 import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+
 if torch.cuda.is_available():
     # Print the number of available GPUs
     num_gpus = torch.cuda.device_count()
@@ -29,16 +32,19 @@ if torch.cuda.is_available():
     print(f"Name of the current GPU: {torch.cuda.get_device_name(current_gpu)}")
 else:
     print("No GPU available, using CPU.")
-np.random.seed(1234)
-torch.manual_seed(1234) 
+
+seed = 1234
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed) 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
     parser.add_argument('--epochs', type = int, default = 100)
-    parser.add_argument('--batch_size', type = int, default = 32)
-    parser.add_argument('--lr', type = float, default = 1e-4)
+    parser.add_argument('--batch_size', type = int, default = 16)
+    parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
 
@@ -59,8 +65,8 @@ def parse_args():
 
 def get_data(path):
     sample = h5.File(path,'r')
-    x  = sample['input']   # shape(100,3,100,100,100)
-    y = sample['output'][:,:,:,15:16] # shape(100,1,256,256)
+    x  = np.array(sample['input'],np.float32)   # shape(100,3,100,100,100)
+    y = np.array(sample['output'][:,:,:,15:16], np.float32)# shape(100,1,256,256)
     
     meta = {}
 
@@ -89,137 +95,135 @@ def get_data(path):
     return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
 
 ### train step ###
-def train(model,train_dataloader,optimizer,config,device,epoch):
-    total_loss = 0.
-    model.train()
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof: 
-        for bidx, samples in enumerate(train_dataloader):
-            data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
-            with record_function("model_training"):
-                optimizer.zero_grad()
-                latent,output = model(data)
-            
-                loss = loss_object(target, output, use_freq_loss=True, use_perceptual_loss=False)
-
-                loss.backward()
-                optimizer.step()
-                # scheduler.step()
-                total_loss += loss.detach().cpu().numpy()
-        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-        epoch_loss = total_loss/len(train_dataloader) # divide number of batches
-        print('Train Epoch: {}/{} Loss: {:.4f}'.format(
-                epoch, config['epochs'], epoch_loss))
-    return epoch_loss
-
-def test(model,test_dataloader,device,config,epoch):
-    model.eval()
-    P = []
-    T = []
-    L = []
-    for bidx, samples in enumerate(test_dataloader):
-        data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
-        latent, pred = model(data)
-        loss = loss_object(target, pred, use_freq_loss=True, use_perceptual_loss=False)
-        
-        P.append(pred.detach().cpu().numpy())
-        T.append(target.detach().cpu().numpy())
-        L.append(loss.detach().cpu().numpy())
+class Trainer:
+    def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
+        self.model = model
+        self.loss_object = loss_object
+        self.optimizer   = optimizer
+        self.train_dataloader = train_dataloader
+        self.test_dataloader  = test_dataloader
+        self.config = config
+        self.device = device
     
-    print('Test Epoch: {}/{} Loss: {:.4f}'.format(
-            epoch, config["epochs"], np.mean(L)))
-    P = np.vstack(P)
-    T = np.vstack(T)
-    return P, T, np.mean(L)
+    def train(self):
+        total_loss = 0.
+        self.model.train()
+         
+        for bidx, samples in enumerate(self.train_dataloader):
+            start = time.time()
+            data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+            self.optimizer.zero_grad()
+            latent,output = self.model(data)
+            loss = self.loss_object(target, output)
+            print(target.shape)
+            print(output.shape)
 
-### run ###
-def run(model,train_dataloader,test_dataloader,optimizer,device,config):
-    tr_losses = []
-    vl_losses = []
-    for epoch in tqdm(range(config['epochs'])):
-        epoch_loss = train(model,train_dataloader,optimizer,config,device,epoch)
-        torch.cuda.empty_cache() # Clear cache after training
-        
-        _,_,val_loss   = test(model,test_dataloader,device,config,epoch)
-        torch.cuda.empty_cache()  # Clear cache after evaluation
-        tr_losses.append(epoch_loss)
-        vl_losses.append(val_loss)
-    return tr_losses,vl_losses
+            loss.backward()
+            self.optimizer.step()
+            total_loss += loss.detach().cpu().numpy()
+            batch_train = time.time() - start
+            print(f'one batch train time: {batch_train}')
+            sys.exit()
+        epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
 
-def ddp_run(rank, world_size, model,device,config,train_dataloader, val_dataloader,optimizer):
-    # Setup for DDP
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    ddp_model = DDP(model, device_ids=[rank])
+        return epoch_loss
 
-    tr_losses, vl_losses = run(ddp_model, train_dataloader, val_dataloader, loss_object, optimizer, config, device)
-    if rank == 0:
-        gathered_tr_losses = [torch.zeros_like(tr_losses) for _ in range(world_size)]
-        gathered_vl_losses = [torch.zeros_like(vl_losses) for _ in range(world_size)]
-        dist.gather(tensor=tr_losses, gather_list=gathered_tr_losses, dst=0)
-        dist.gather(tensor=vl_losses, gather_list=gathered_vl_losses, dst=0)
-         # Combine data from all processes
-        combined_tr_losses = torch.cat(gathered_tr_losses).tolist()
-        combined_vl_losses = torch.cat(gathered_vl_losses).tolist()
-        data = (combined_tr_losses,combined_vl_losses)
+    
+    def test(self):
+        self.model.eval()
+        P = []
+        T = []
+        L = []
+        for bidx, samples in enumerate(self.test_dataloader):
+            data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+            latent,pred = self.model(data)
+            loss = self.loss_object(target, pred)
+            
+            P.append(pred.detach().cpu().numpy())
+            T.append(target.detach().cpu().numpy())
+            L.append(loss.detach().cpu().numpy())
+        P = np.vstack(P)
+        T = np.vstack(T)
+        return P,T,np.mean(L)
+    def run(self):
+        tr_losses = []
+        vl_losses = []
+        for epoch in tqdm(range(self.config['epochs'])):
+            epoch_loss = self.train()
+            torch.cuda.empty_cache()  # Clear cache after training
+            
+            _, _, val_loss = self.test()
+            torch.cuda.empty_cache()  # Clear cache after evaluation
+            tr_losses.append(epoch_loss)
+            vl_losses.append(val_loss)
+            print('Train Epoch: {}/{} Loss: {:.4f}'.format(
+                    epoch, self.config['epochs'], epoch_loss))
+            print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
+                epoch, self.config["epochs"], val_loss))
+            
+        return tr_losses, vl_losses
 
-        with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
-            pickle.dump(data, pickle_file)
-    else:
-        # Other processes send their data
-        dist.gather(tensor=tr_losses, gather_list=None, dst=0)
-        dist.gather(tensor=vl_losses, gather_list=None, dst=0)
-    # Cleanup
-    dist.destroy_process_group()
-    if rank == 0:
-        return combined_tr_losses, combined_vl_losses
 
 def main():
     config = parse_args()
-    path2 = '/data/astro1/ss1421/physical_forward/cnn/Batches/rotate2400.hdf5'
+    path2 = '/data/astro1/ss1421/physical_forward/cnn/Batches/rotate1200.hdf5'
     x, y = get_data(path2)
-    xtr,xte = x[:2000],x[2000:]
-    ytr,yte = y[:2000],y[2000:]
+    xtr,xte = x[:1000],x[1000:]
+    ytr,yte = y[:1000],y[1000:]
 
-    xtr = torch.Tensor(xtr)
-    ytr = torch.Tensor(ytr)
-    xte = torch.Tensor(xte)
-    yte = torch.Tensor(yte)
+    xtr = torch.tensor(xtr,dtype=torch.float32)
+    ytr = torch.tensor(ytr,dtype=torch.float32)
+    xte = torch.tensor(xte,dtype=torch.float32)
+    yte = torch.tensor(yte,dtype=torch.float32)
 
     train_dataset = TensorDataset(xtr, ytr)
     test_dataset = TensorDataset(xte, yte)
 
     ### torch data loader ###
     train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size= 4, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
     model = ClsSO3Net()
     model.to(device)
+    ### Pre-trained VGG16 ###
+    # vgg = VGGFeatures()
+    # vgg.to(device)
+    # vgg.eval()  # Important to set in evaluation mode!
+    resnet18 = ResNetFeatures()
+    resnet18.to(device)
+    loss_object = Lossfunction(resnet18,use_freq_loss=True,use_perceptual_loss=True,mse_loss_scacle = 0.8, freq_loss_scale=0.1, perceptual_loss_scale=0.1)
+    
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
     ### start training ###
     start = time.time()
-    world_size = torch.cuda.device_count()
-    mp.spawn(ddp_run, args=(world_size, model, device, config, train_dataloader, test_dataloader, optimizer), nprocs=world_size, join=True)
+    # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
+    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
+    tr_losses, vl_losses = trainer.run()
+    # world_size = torch.cuda.device_count()
+    # mp.spawn(ddp_run, args=(world_size, model, device, config, train_dataloader, test_dataloader, optimizer), nprocs=world_size, join=True)
     end = time.time()
-
     print(f'running time:{(end-start)/60} mins')
     
-    
     ### validation ###
-    pred, target, _ = test(config['epochs'])
-    pred_targ = (pred, target)
-
-    with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "rb") as pickle_file:
-        losses = pickle.load(pickle_file)
+    pred, target, test_loss = trainer.test()
+    print('Test Epoch: {} Loss: {:.4f}\n'.format(
+                config["epochs"], test_loss))
+    data = (tr_losses, vl_losses,pred, target)
     
-    losses.update(pred_targ)
+    # losses.update(pred_targ)
     with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
-        pickle.dump(losses, pickle_file)
+        pickle.dump(data, pickle_file)
+    
 
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
     avg_ssim = calculate_ssim_batch(target,pred)
     print('SSIM: {:.4f}'.format(avg_ssim))
+    # plot pred-targ
+    img_plt(target,pred,path='/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/img/')
+    torch.save(model.state_dict(),'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/model.pth')
 
 if __name__ == '__main__':
     main()
