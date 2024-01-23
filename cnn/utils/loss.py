@@ -150,8 +150,8 @@ class VGGFeatures(torch.nn.Module):
 class ResNetFeatures(nn.Module):
     def __init__(self):
         super(ResNetFeatures, self).__init__()
-        resnet18 = models.resnet18(pretrained=True).eval()
-        self.features = nn.Sequential(*list(resnet18.children())[:-2])
+        resnet34 = models.resnet34(pretrained=True).eval()
+        self.features = nn.Sequential(*list(resnet34.children())[:-2])
 
     def forward(self, x):
         return self.features(x)

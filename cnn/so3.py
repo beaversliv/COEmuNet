@@ -177,15 +177,14 @@ def main():
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
-    model = ClsSO3Net()
-    model.to(device)
+    model = ClsSO3Net().to(device)
+   
     ### Pre-trained VGG16 ###
     # vgg = VGGFeatures()
     # vgg.to(device)
     # vgg.eval()  # Important to set in evaluation mode!
-    resnet18 = ResNetFeatures()
-    resnet18.to(device)
-    loss_object = Lossfunction(resnet18,use_freq_loss=True,use_perceptual_loss=True,mse_loss_scacle = 0.8, freq_loss_scale=0.1, perceptual_loss_scale=0.1)
+    resnet34 = ResNetFeatures().to(device)
+    loss_object = Lossfunction(resnet34,use_freq_loss=True,use_perceptual_loss=True,mse_loss_scacle = 0.7, freq_loss_scale=0.1, perceptual_loss_scale=0.2)
     
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
