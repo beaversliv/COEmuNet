@@ -150,21 +150,21 @@ def main():
 
     data = (losses, vl, pred, target)
     # Save to a pickle file
-    with open("/home/dc-su2/physical_informed/cnn/original/results/history.pkl", "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
-    torch.save(model,'/home/dc-su2/physical_informed/cnn/original/results/model.pth')
+    # with open("/home/dc-su2/physical_informed/cnn/original/results/history.pkl", "wb") as pickle_file:
+    #     pickle.dump(data, pickle_file)
+    # torch.save(model,'/home/dc-su2/physical_informed/cnn/original/results/model.pth')
 
-    for i in range(0,600,50):
-        fig, axs = plt.subplots(1, 2,figsize=(12, 5))
-        im1 = axs[0].imshow(target[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
-        axs[0].set_title('target')
-        fig.colorbar(im1,ax=axs[0])
+    # for i in range(0,600,50):
+    #     fig, axs = plt.subplots(1, 2,figsize=(12, 5))
+    #     im1 = axs[0].imshow(target[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
+    #     axs[0].set_title('target')
+    #     fig.colorbar(im1,ax=axs[0])
 
-        im2 = axs[1].imshow(pred[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
-        axs[1].set_title('prediction')
-        fig.colorbar(im2,ax=axs[1])
-        plt.savefig('/home/dc-su2/physical_informed/cnn/original/results/img/ex{}.png'.format(i))
-        plt.close()
+    #     im2 = axs[1].imshow(pred[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
+    #     axs[1].set_title('prediction')
+    #     fig.colorbar(im2,ax=axs[1])
+    #     plt.savefig('/home/dc-su2/physical_informed/cnn/original/results/img/ex{}.png'.format(i))
+        # plt.close()
 
 if __name__ == '__main__':
     main()
