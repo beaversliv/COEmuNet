@@ -153,13 +153,15 @@ class Trainer:
             data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
             latent, pred = self.ddp_model(data)
             loss = self.loss_object(target, pred)
-            
-            P.append(pred.detach().cpu().numpy())
-            T.append(target.detach().cpu().numpy())
+            # keep pred and targ on GPU
+            P.append(pred.detach())
+            T.append(target.detach())
+            # move loss to cpu
             L.append(loss.detach().cpu().numpy())
-        P = np.vstack(P)
-        T = np.vstack(T)
-        return P,T,np.mean(L)
+        p = torch.cat(P,dim=0)
+        t = torch.cat(T,dim=0)
+        return p,t,np.mean(L)
+
     def run(self):
         history = {'train_loss': [], 'val_loss': []} 
         for epoch in tqdm(range(self.config['epochs'])):
@@ -176,34 +178,34 @@ class Trainer:
                 epoch, self.config["epochs"], val_loss))
 
         return history
-    
-    def save(self, model_path, history_path,history,path, world_size):
-        pred, target, test_loss = self.test()
-        # convert to tensor
-        pred_tensor = torch.tensor(pred).to(self.device)
-        target_tensor = torch.tensor(target).to(self.device)
-        
-        # Gather predictions and targets from all GPUs
-        gathered_preds = [torch.zeros_like(pred_tensor) for _ in range(world_size)]
-        gathered_targets = [torch.zeros_like(target_tensor) for _ in range(world_size)]
+    def save(self, model_path, history_path, history, path, world_size):
 
-        torch.distributed.all_gather(gathered_preds, pred_tensor)
-        torch.distributed.all_gather(gathered_targets, target_tensor)
+        def gather_tensors(tensor):
+            
+            gathered_tensors = [torch.zeros_like(tensor) for _ in range(world_size)]
+            torch.distributed.all_gather(gathered_tensors, tensor)
+            return gathered_tensors
+
+        pred, target, test_loss = self.test()
 
         # Aggregate test loss
         aggregated_loss = torch.tensor(test_loss).to(self.device)
         torch.distributed.all_reduce(aggregated_loss, op=torch.distributed.ReduceOp.SUM)
         aggregated_loss = aggregated_loss.item() / world_size
-        
 
         if self.rank == 0:
             # Save only the model parameters
             torch.save(self.ddp_model.module.state_dict(), model_path)
             print('saved model!\n')
+            print('start gathering')
+            # Gather predictions and targets from all GPUs
+            gathered_preds = gather_tensors(pred)
+            gathered_targets = gather_tensors(target)
+
             # Concatenate the gathered results
             all_preds = torch.cat(gathered_preds, dim=0).cpu().numpy()
             all_targets = torch.cat(gathered_targets, dim=0).cpu().numpy()
-            # Save the training history
+            # Save the training history, predictions, and targets
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
                     "history": history,
@@ -260,8 +262,8 @@ def main():
     config = parse_args()
     path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate1200.hdf5'
     x, y = get_data(path2)
-    xtr,xte = x[:1000],x[1000:]
-    ytr,yte = y[:1000],y[1000:]
+    xtr,xte = x[:32],x[1000:]
+    ytr,yte = y[:32],y[1000:]
 
     xtr = torch.Tensor(xtr)
     ytr = torch.Tensor(ytr)
