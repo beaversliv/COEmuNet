@@ -157,17 +157,17 @@ class ResNetFeatures(nn.Module):
         return self.features(x)
     
 class Lossfunction(nn.Module):
-    def __init__(self, pretrained_model,use_freq_loss=False,use_perceptual_loss=False,mse_loss_scacle = 1.0,freq_loss_scale=1.0, perceptual_loss_scale=1.0):
+    def __init__(self, pretrained_model,use_freq_loss=False,use_perceptual_loss=False,mse_loss_scale = 1.0,freq_loss_scale=1.0, perceptual_loss_scale=1.0):
         super(Lossfunction, self).__init__()
         self.pretrained_model      = pretrained_model
         self.use_freq_loss         = use_freq_loss
         self.use_perceptual_loss   = use_perceptual_loss
-        self.mse_loss_scacle       = mse_loss_scacle
+        self.mse_loss_scale        = mse_loss_scale
         self.freq_loss_scale       = freq_loss_scale
         self.perceptual_loss_scale = perceptual_loss_scale
     def forward(self,target,pred):
         # Mean Squared Error Loss
-        mse_loss = self.mse_loss_scacle * nn.functional.mse_loss(pred, target)
+        mse_loss = self.mse_loss_scale * nn.functional.mse_loss(pred, target)
         total_loss = mse_loss
 
         # Frequency Loss
