@@ -8,7 +8,10 @@ warnings.filterwarnings('error', category=RuntimeWarning)
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+import logging
+import time
 
+logger = logging.getLogger(__name__)
 ### custom transformations ###
 class CustomTransform:
     def __init__(self,file_statistics):
@@ -107,8 +110,10 @@ class IntensityDataset(Dataset):
             return intensity.shape[0]
 
     def __getitem__(self, idx):
+        # start timing
+        start_time = time.time()
         file_idx, file_local_idx = self.find_file_index(idx)
-
+        
         # Load the specific data from the file
         with h5.File(self.file_paths[file_idx], 'r') as hdf5_file:
             x = np.array(hdf5_file['input'][file_local_idx], dtype=np.float32)
@@ -116,7 +121,11 @@ class IntensityDataset(Dataset):
 
         if self.transform:
             xt,yt = self.transform(x, y)
-
+        # end timing
+        end_time = time.time()
+        load_time = end_time - start_time
+        # write in log
+        logger.info(f"Data loading time for index {idx}: {load_time} seconds")
         return xt, yt
 
     def find_file_index(self, global_idx):
@@ -127,28 +136,3 @@ class IntensityDataset(Dataset):
                 return file_idx, global_idx - running_total
             running_total += file_length
         raise IndexError("Index out of range")
-# file_statistics = '/home/dc-su2/physical_informed/cnn/unrotate_statistics.pkl'
-# train_file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/batch_{i}.hdf5'for i in range(8)]
-# # val_file_path = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/vali.hdf5']
-# test_file_path = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/unrotate.hdf5']
-# custom_transform = CustomTransform(file_statistics)
-# ### dataloader ###
-# train_dataset= IntensityDataset(train_file_paths,transform=None)
-# train_dataloader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-
-# # vali_dataset= IntensityDataset(val_file_path,transform=custom_transform)
-# # vali_dataloader = DataLoader(vali_dataset, batch_size=64, shuffle=True)
-
-# test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
-# test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-
-# for i, batch in enumerate(train_dataloader):
-#     inputs,target = batch
-
-# # for i, batch in enumerate(vali_dataloader):
-#     # inputs,target = batch
-
-# for i, batch in enumerate(test_dataloader):
-#     inputs,target = batch
-    # print(i, inputs.shape,target.shape)
-#     # print(inputs.shape)

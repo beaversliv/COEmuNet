@@ -2,15 +2,18 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd import Variable
+# custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.model          import Net
 from utils.loss           import loss_object,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.focal_frequency_loss import FocalFrequencyLoss
+# helper packages
 import h5py as h5
 import numpy as np
 import os
 import sys
 import time
+import logging
 from tqdm                 import tqdm
 import pickle
 import argparse
@@ -27,7 +30,13 @@ if torch.cuda.is_available():
 else:
     print("No GPU available, using CPU.")
 
+import logging
 
+logging.basicConfig(filename='/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/training.log', 
+                    level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+logger = logging.getLogger(__name__)
 # Global Constants
 np.random.seed(1234)
 torch.manual_seed(1234) 
@@ -59,11 +68,10 @@ def parse_args():
     return config
 config = parse_args()
 # file paths for train, vali and test
-# file paths for train, vali and test
-file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/rotate12000_statistics.pkl'
-file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate12000_{i}.hdf5' for i in range(5)]
-train_file_path = file_paths[:4]
-vali_file_path  = file_paths[4:]
+file_statistics = '/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/rotate24000_statistics.pkl'
+file_paths = [f'/data/astro1/ss1421/physical_forward/cnn/Batches/rotate24000_{i}.hdf5' for i in range(10)]
+train_file_path = file_paths[:8]
+vali_file_path  = file_paths[2:]
 
 custom_transform = CustomTransform(file_statistics)
 train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
@@ -89,10 +97,16 @@ def train(epoch):
         data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
 
         optimizer.zero_grad()
+        start = time.time()
         latent,output = model(data)
+        end = time.time()
+        logger.info(f"Forward pass time: {end - start} seconds")        
         loss = loss_object(target, output, use_freq_loss=True, use_perceptual_loss=False)
 
+        s1 = time.time()
         loss.backward()
+        e1 = time.time()
+        logger.info(f'backpropagation time: {(e1-s1)}s')
         optimizer.step()
         total_loss += loss.detach().cpu().numpy()
 
@@ -138,16 +152,19 @@ def main():
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
     pred, target, _ = test(config['epochs'],vali_dataloader)
+
+    data = (losses, vl, pred, target)
+    # Save to a pickle file
+    with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/results/history.pkl", "wb") as pickle_file:
+        pickle.dump(data, pickle_file)
+
     ### other quantitive measure ###
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
     avg_ssim = calculate_ssim_batch(target,pred)
     print('SSIM: {:.4f}'.format(avg_ssim))
-    data = (losses, vl, pred, target)
-    # Save to a pickle file
-    with open("/home/dc-su2/physical_informed/cnn/rotate/results/history.pkl", "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
-    torch.save(model,'/home/dc-su2/physical_informed/cnn/rotate/results/model.pth')
+
+    torch.save(model,'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/results/model.pth')
 
     for i in range(0,1000,50):
         fig, axs = plt.subplots(1, 2,figsize=(12, 5))
@@ -158,7 +175,7 @@ def main():
         im2 = axs[1].imshow(pred[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
         axs[1].set_title('prediction')
         fig.colorbar(im2,ax=axs[1])
-        plt.savefig('/home/dc-su2/physical_informed/cnn/rotate/results/img/ex{}.png'.format(i))
+        plt.savefig('/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/results/img/ex{}.png'.format(i))
         plt.close()
 
 if __name__ == '__main__':
