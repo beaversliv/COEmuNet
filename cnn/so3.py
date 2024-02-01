@@ -22,6 +22,20 @@ import pickle
 import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+from thop import profile
+import subprocess
+
+def get_gpu_utilization():
+    print('get utilization started')
+    try:
+        result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], stdout=subprocess.PIPE, text=True)
+        # Splitting lines and extracting the utilization from the first line
+        utilization_str = result.stdout.strip().split('\n')[0]
+        utilization = float(utilization_str)
+        return utilization
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
 
 if torch.cuda.is_available():
     # Print the number of available GPUs
@@ -42,7 +56,7 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
-    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--epochs', type = int, default = 1)
     parser.add_argument('--batch_size', type = int, default = 16)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -110,6 +124,12 @@ class Trainer:
         self.model.train()
          
         for bidx, samples in enumerate(self.train_dataloader):
+            
+            utilization = get_gpu_utilization()
+            if utilization is not None:
+                print(f"GPU Utilization: {utilization}%")
+            else:
+                print("Unable to retrieve GPU utilization.")
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
             latent,output = self.model(data)
@@ -159,8 +179,10 @@ class Trainer:
 
 def main():
     config = parse_args()
-    path2 = '/data/astro1/ss1421/physical_forward/cnn/Batches/rotate1200.hdf5'
+    # start = time.time()
+    path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate1200.hdf5'
     x, y = get_data(path2)
+    # print('time for load data from disk:',time.time()-start)
     xtr,xte = x[:1000],x[1000:]
     ytr,yte = y[:1000],y[1000:]
 
@@ -184,7 +206,8 @@ def main():
     # vgg.to(device)
     # vgg.eval()  # Important to set in evaluation mode!
     resnet34 = ResNetFeatures().to(device)
-    loss_object = Lossfunction(resnet34,use_freq_loss=True,use_perceptual_loss=True,mse_loss_scacle = 0.6, freq_loss_scale=0.2, perceptual_loss_scale=0.2)
+    loss_object = Lossfunction(resnet34,use_freq_loss=False,use_perceptual_loss=False,
+                                        mse_loss_scale = 0.6,freq_loss_scale=0.2, perceptual_loss_scale=0.2)
     
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
@@ -193,29 +216,30 @@ def main():
     # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
     trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
     tr_losses, vl_losses = trainer.run()
+
     # world_size = torch.cuda.device_count()
     # mp.spawn(ddp_run, args=(world_size, model, device, config, train_dataloader, test_dataloader, optimizer), nprocs=world_size, join=True)
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-    
+
     ### validation ###
-    pred, target, test_loss = trainer.test()
-    print('Test Epoch: {} Loss: {:.4f}\n'.format(
-                config["epochs"], test_loss))
-    data = (tr_losses, vl_losses,pred, target)
+    # pred, target, test_loss = trainer.test()
+    # print('Test Epoch: {} Loss: {:.4f}\n'.format(
+    #             config["epochs"], test_loss))
+    # data = (tr_losses, vl_losses,pred, target)
     
-    # losses.update(pred_targ)
-    with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
+    # # losses.update(pred_targ)
+    # with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
+    #     pickle.dump(data, pickle_file)
     
 
-    mean_error, median_error = mean_absolute_percentage_error(target,pred)
-    print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
-    avg_ssim = calculate_ssim_batch(target,pred)
-    print('SSIM: {:.4f}'.format(avg_ssim))
-    # plot pred-targ
-    img_plt(target,pred,path='/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/img/')
-    torch.save(model.state_dict(),'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/model.pth')
+    # mean_error, median_error = mean_absolute_percentage_error(target,pred)
+    # print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
+    # avg_ssim = calculate_ssim_batch(target,pred)
+    # print('SSIM: {:.4f}'.format(avg_ssim))
+    # # plot pred-targ
+    # img_plt(target,pred,path='/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/img/')
+    # torch.save(model.state_dict(),'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/model.pth')
 
 if __name__ == '__main__':
     main()
