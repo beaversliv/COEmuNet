@@ -3,7 +3,7 @@ import torch.nn as nn
 import torchvision
 from thop import profile
 import sys
-from utils.so3_model      import ClsSO3Net
+from utils.model      import Net
 import h5py as h5
 import numpy as np
 def get_data(path):
@@ -40,7 +40,7 @@ def get_data(path):
 
  
 
-model = ClsSO3Net()
+model = Net()
  
 
 path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate1200.hdf5'
