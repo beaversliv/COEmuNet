@@ -157,11 +157,9 @@ class ResNetFeatures(nn.Module):
         return self.features(x)
     
 class Lossfunction(nn.Module):
-    def __init__(self, pretrained_model,use_freq_loss=False,use_perceptual_loss=False,mse_loss_scale = 1.0,freq_loss_scale=1.0, perceptual_loss_scale=1.0):
+    def __init__(self, pretrained_model,mse_loss_scale = 1.0,freq_loss_scale=1.0, perceptual_loss_scale=1.0):
         super(Lossfunction, self).__init__()
         self.pretrained_model      = pretrained_model
-        self.use_freq_loss         = use_freq_loss
-        self.use_perceptual_loss   = use_perceptual_loss
         self.mse_loss_scale        = mse_loss_scale
         self.freq_loss_scale       = freq_loss_scale
         self.perceptual_loss_scale = perceptual_loss_scale
@@ -171,11 +169,11 @@ class Lossfunction(nn.Module):
         total_loss = mse_loss
 
         # Frequency Loss
-        if self.use_freq_loss:
+        if self.freq_loss_scale > 0.0:
             freq_loss = self.calculate_freq_loss(target,pred)
             total_loss += self.freq_loss_scale * freq_loss
         # Perceptual Loss
-        if self.use_perceptual_loss:
+        if self.perceptual_loss_scale > 0.0:
             perceptual_loss = self.calculate_perceptual_loss(target,pred)
             total_loss += self.perceptual_loss_scale * perceptual_loss
         return total_loss
