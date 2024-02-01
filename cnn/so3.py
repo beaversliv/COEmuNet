@@ -9,6 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import profile, record_function, ProfilerActivity
 
 from utils.so3_model      import ClsSO3Net
+# from utils.model import Net
 from utils.loss           import Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt
 
@@ -22,8 +23,11 @@ import pickle
 import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+from torch.cuda.amp import GradScaler, autocast
 from thop import profile
 import subprocess
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 def get_gpu_utilization():
     print('get utilization started')
@@ -35,6 +39,18 @@ def get_gpu_utilization():
         return utilization
     except Exception as e:
         print(f"Error: {e}")
+        return None
+
+def get_gpu_memory():
+    try:
+        # Query the NVIDIA System Management Interface for GPU info
+        result = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,nounits,noheader'], encoding='utf-8')
+        # Convert output into a list
+        gpu_memory = [x.split(',') for x in result.strip().split('\n')]
+        gpu_memory = [{'used': int(x[0]), 'total': int(x[1])} for x in gpu_memory]
+        return gpu_memory
+    except subprocess.CalledProcessError as e:
+        print(e.output)
         return None
 
 if torch.cuda.is_available():
@@ -125,20 +141,34 @@ class Trainer:
          
         for bidx, samples in enumerate(self.train_dataloader):
             
-            utilization = get_gpu_utilization()
-            if utilization is not None:
-                print(f"GPU Utilization: {utilization}%")
-            else:
-                print("Unable to retrieve GPU utilization.")
+            # utilization = get_gpu_utilization()
+            # if utilization is not None:
+            #     print(f"GPU Utilization: {utilization}%")
+            # else:
+            #     print("Unable to retrieve GPU utilization.")
+            # Check memory after loading data
+            # memory_info = get_gpu_memory()
+            # print(f'GPU Memory usage after loading data in epoch 1: {memory_info}')
+
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
             latent,output = self.model(data)
             loss = self.loss_object(target, output)
             loss.backward()
-            self.optimizer.step()
+            # # Unscales the gradients of optimizer's assigned params in-place
+            # self.scaler.unscale_(self.optimizer)
+            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=)
+            # self.scaler.step(self.optimizer)
+            # self.scaler.update()
+            # self.optimizer.step()
+            # Check memory after an iteration
+            # memory_info = get_gpu_memory()
+            # print(f'GPU Memory usage after an iteration in epoch 1: {memory_info}\n')
             total_loss += loss.detach().cpu().numpy()
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
-
+         #Maybe check memory usage at the end of an epoch
+        # memory_info = get_gpu_memory()
+        # print(f'GPU Memory usage after epoch 1: {memory_info}')
         return epoch_loss
 
     
@@ -186,10 +216,10 @@ def main():
     xtr,xte = x[:1000],x[1000:]
     ytr,yte = y[:1000],y[1000:]
 
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
+    xtr = torch.tensor(xtr,dtype=torch.float16)
+    ytr = torch.tensor(ytr,dtype=torch.float16)
+    xte = torch.tensor(xte,dtype=torch.float16)
+    yte = torch.tensor(yte,dtype=torch.float16)
 
     train_dataset = TensorDataset(xtr, ytr)
     test_dataset = TensorDataset(xte, yte)
@@ -199,15 +229,14 @@ def main():
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
-    model = ClsSO3Net().to(device)
+    model = ClsSO3Net().to(device).half()
    
     ### Pre-trained VGG16 ###
     # vgg = VGGFeatures()
     # vgg.to(device)
     # vgg.eval()  # Important to set in evaluation mode!
-    resnet34 = ResNetFeatures().to(device)
-    loss_object = Lossfunction(resnet34,use_freq_loss=False,use_perceptual_loss=False,
-                                        mse_loss_scale = 0.6,freq_loss_scale=0.2, perceptual_loss_scale=0.2)
+    resnet34 = ResNetFeatures().to(device).half()
+    loss_object = Lossfunction(resnet34,mse_loss_scale = 0.6,freq_loss_scale=0.2, perceptual_loss_scale=0.2)
     
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
