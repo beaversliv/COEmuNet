@@ -72,8 +72,8 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
-    parser.add_argument('--epochs', type = int, default = 1)
-    parser.add_argument('--batch_size', type = int, default = 16)
+    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--batch_size', type = int, default = 8)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -140,35 +140,15 @@ class Trainer:
         self.model.train()
          
         for bidx, samples in enumerate(self.train_dataloader):
-            
-            # utilization = get_gpu_utilization()
-            # if utilization is not None:
-            #     print(f"GPU Utilization: {utilization}%")
-            # else:
-            #     print("Unable to retrieve GPU utilization.")
-            # Check memory after loading data
-            # memory_info = get_gpu_memory()
-            # print(f'GPU Memory usage after loading data in epoch 1: {memory_info}')
-
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
             latent,output = self.model(data)
             loss = self.loss_object(target, output)
             loss.backward()
-            # # Unscales the gradients of optimizer's assigned params in-place
-            # self.scaler.unscale_(self.optimizer)
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=)
-            # self.scaler.step(self.optimizer)
-            # self.scaler.update()
-            # self.optimizer.step()
-            # Check memory after an iteration
-            # memory_info = get_gpu_memory()
-            # print(f'GPU Memory usage after an iteration in epoch 1: {memory_info}\n')
+            self.optimizer.step()
             total_loss += loss.detach().cpu().numpy()
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
-         #Maybe check memory usage at the end of an epoch
-        # memory_info = get_gpu_memory()
-        # print(f'GPU Memory usage after epoch 1: {memory_info}')
+
         return epoch_loss
 
     
@@ -209,17 +189,15 @@ class Trainer:
 
 def main():
     config = parse_args()
-    # start = time.time()
     path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate1200.hdf5'
     x, y = get_data(path2)
-    # print('time for load data from disk:',time.time()-start)
     xtr,xte = x[:1000],x[1000:]
     ytr,yte = y[:1000],y[1000:]
 
-    xtr = torch.tensor(xtr,dtype=torch.float16)
-    ytr = torch.tensor(ytr,dtype=torch.float16)
-    xte = torch.tensor(xte,dtype=torch.float16)
-    yte = torch.tensor(yte,dtype=torch.float16)
+    xtr = torch.tensor(xtr,dtype=torch.float32)
+    ytr = torch.tensor(ytr,dtype=torch.float32)
+    xte = torch.tensor(xte,dtype=torch.float32)
+    yte = torch.tensor(yte,dtype=torch.float32)
 
     train_dataset = TensorDataset(xtr, ytr)
     test_dataset = TensorDataset(xte, yte)
@@ -229,14 +207,10 @@ def main():
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
-    model = ClsSO3Net().to(device).half()
+    model = ClsSO3Net().to(device)
    
-    ### Pre-trained VGG16 ###
-    # vgg = VGGFeatures()
-    # vgg.to(device)
-    # vgg.eval()  # Important to set in evaluation mode!
-    resnet34 = ResNetFeatures().to(device).half()
-    loss_object = Lossfunction(resnet34,mse_loss_scale = 0.6,freq_loss_scale=0.2, perceptual_loss_scale=0.2)
+    resnet34 = ResNetFeatures().to(device)
+    loss_object = Lossfunction(resnet34,mse_loss_scale = 0.7,freq_loss_scale=0.1, perceptual_loss_scale=0.2)
     
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
@@ -245,30 +219,27 @@ def main():
     # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
     trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
     tr_losses, vl_losses = trainer.run()
-
-    # world_size = torch.cuda.device_count()
-    # mp.spawn(ddp_run, args=(world_size, model, device, config, train_dataloader, test_dataloader, optimizer), nprocs=world_size, join=True)
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-
-    ### validation ###
-    # pred, target, test_loss = trainer.test()
-    # print('Test Epoch: {} Loss: {:.4f}\n'.format(
-    #             config["epochs"], test_loss))
-    # data = (tr_losses, vl_losses,pred, target)
     
-    # # losses.update(pred_targ)
+    ### validation ###
+    pred, target, test_loss = trainer.test()
+    print('Test Epoch: {} Loss: {:.4f}\n'.format(
+                config["epochs"], test_loss))
+    data = (tr_losses, vl_losses,pred, target)
+    
     # with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
     #     pickle.dump(data, pickle_file)
     
 
-    # mean_error, median_error = mean_absolute_percentage_error(target,pred)
-    # print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
-    # avg_ssim = calculate_ssim_batch(target,pred)
-    # print('SSIM: {:.4f}'.format(avg_ssim))
-    # # plot pred-targ
+    mean_error, median_error = mean_absolute_percentage_error(target,pred)
+    print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
+    avg_ssim = calculate_ssim_batch(target,pred)
+    print('SSIM: {:.4f}'.format(avg_ssim))
+    # plot pred-targ
     # img_plt(target,pred,path='/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/img/')
     # torch.save(model.state_dict(),'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/model.pth')
 
 if __name__ == '__main__':
     main()
+
