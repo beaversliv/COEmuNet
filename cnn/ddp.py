@@ -24,16 +24,6 @@ import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 
-if torch.cuda.is_available():
-    # Print the number of available GPUs
-    num_gpus = torch.cuda.device_count()
-    print(f"Number of available GPUs: {num_gpus}")
-    # Get the name of the current GPU (if there is more than one)
-    current_gpu = torch.cuda.current_device()
-    print(f"Name of the current GPU: {torch.cuda.get_device_name(current_gpu)}")
-else:
-    print("No GPU available, using CPU.")
-
 seed = 1234
 np.random.seed(seed)
 torch.manual_seed(seed)
@@ -56,9 +46,9 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
-    parser.add_argument('--epochs', type = int, default = 1)
-    parser.add_argument('--batch_size', type = int, default = 16) # each GPU handle 16 samples
-    parser.add_argument('--lr', type = float, default = 2e-3)
+    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--batch_size', type = int, default = 8) # each GPU handle 16 samples
+    parser.add_argument('--lr', type = float, default = 2 * 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
 
@@ -116,8 +106,8 @@ class Trainer:
         self.test_dataloader  = test_dataloader
 
         self.config = config
-        self.rank   = rank
-        self.world_size = world_size
+        self.rank   = rank # world_size -1, distinguish each process
+        self.world_size = world_size # num GPUs
         self.device = torch.device(f'cuda:{rank}') if torch.cuda.is_available() else torch.device('cpu')
         # Define the optimizer for the DDP model
         self.optimizer = torch.optim.Adam(ddp_model.parameters(), lr=self.config['lr'], betas=(0.9, 0.999))
@@ -125,8 +115,8 @@ class Trainer:
         # Initialize ResNetFeatures and move it to the correct device
         self.resnet18 = ResNetFeatures().to(rank).eval()  # Set to evaluation mode
         # Initialize custom loss function with ResNet18 feature extractor
-        self.loss_object = Lossfunction(self.resnet18,use_freq_loss=False,use_perceptual_loss=False,
-                                        mse_loss_scale = 1.0,freq_loss_scale=1.0, perceptual_loss_scale=1.0)
+        self.loss_object = Lossfunction(self.resnet18,mse_loss_scale = 1.0,freq_loss_scale=0.0, perceptual_loss_scale=0.0)
+                                       
     def train(self):
         total_loss = 0.
         self.ddp_model.train()
@@ -153,59 +143,68 @@ class Trainer:
             data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
             latent, pred = self.ddp_model(data)
             loss = self.loss_object(target, pred)
-            # keep pred and targ on GPU
-            P.append(pred.detach())
-            T.append(target.detach())
-            # move loss to cpu
+            
+            P.append(pred.detach().cpu().numpy())
+            T.append(target.detach().cpu().numpy())
             L.append(loss.detach().cpu().numpy())
-        p = torch.cat(P,dim=0)
-        t = torch.cat(T,dim=0)
-        return p,t,np.mean(L)
+        P = np.vstack(P)
+        T = np.vstack(T)
+        return P,T,np.mean(L)
 
     def run(self):
         history = {'train_loss': [], 'val_loss': []} 
-        for epoch in tqdm(range(self.config['epochs'])):
+        for epoch in tqdm(range(self.config['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss = self.train()
             torch.cuda.empty_cache()  # Clear cache after training
             
             _, _, val_loss = self.test()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            history['train_loss'].append(epoch_loss)  # Update history
-            history['val_loss'].append(val_loss)      # Update history
-            print('Train Epoch: {}/{} Loss: {:.4f}'.format(
-                    epoch, self.config['epochs'], epoch_loss))
-            print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
-                epoch, self.config["epochs"], val_loss))
+
+            # Aggregate losses
+            aggregated_epoch_loss = torch.tensor(epoch_loss).to(self.rank)
+            torch.distributed.all_reduce(aggregated_epoch_loss, op=torch.distributed.ReduceOp.SUM)
+            aggregated_epoch_loss /= self.world_size
+
+            aggregated_val_loss = torch.tensor(val_loss).to(self.rank)
+            torch.distributed.all_reduce(aggregated_val_loss, op=torch.distributed.ReduceOp.SUM)
+            aggregated_val_loss /= self.world_size
+
+            # Update history on master process
+            if self.rank == 0:
+                history['train_loss'].append(aggregated_epoch_loss.item())
+                history['val_loss'].append(aggregated_val_loss.item())
+                print(f'Train Epoch: {epoch}/{self.config["epochs"]} Loss: {aggregated_epoch_loss.item():.4f}')
+                print(f'Test Epoch: {epoch}/{self.config["epochs"]} Loss: {aggregated_val_loss.item():.4f}\n')
 
         return history
-    def save(self, model_path, history_path, history, path, world_size):
 
-        def gather_tensors(tensor):
-            
-            gathered_tensors = [torch.zeros_like(tensor) for _ in range(world_size)]
-            torch.distributed.all_gather(gathered_tensors, tensor)
-            return gathered_tensors
-
+    def save(self, model_path, history_path,history,path, world_size):
         pred, target, test_loss = self.test()
+        # convert to tensor
+        pred_tensor = torch.tensor(pred).to(self.device)
+        target_tensor = torch.tensor(target).to(self.device)
+        
+        # Gather predictions and targets from all GPUs
+        gathered_preds = [torch.zeros_like(pred_tensor) for _ in range(world_size)]
+        gathered_targets = [torch.zeros_like(target_tensor) for _ in range(world_size)]
+
+        torch.distributed.all_gather(gathered_preds, pred_tensor)
+        torch.distributed.all_gather(gathered_targets, target_tensor)
 
         # Aggregate test loss
         aggregated_loss = torch.tensor(test_loss).to(self.device)
         torch.distributed.all_reduce(aggregated_loss, op=torch.distributed.ReduceOp.SUM)
         aggregated_loss = aggregated_loss.item() / world_size
+        
 
         if self.rank == 0:
             # Save only the model parameters
             torch.save(self.ddp_model.module.state_dict(), model_path)
             print('saved model!\n')
-            print('start gathering')
-            # Gather predictions and targets from all GPUs
-            gathered_preds = gather_tensors(pred)
-            gathered_targets = gather_tensors(target)
-
             # Concatenate the gathered results
             all_preds = torch.cat(gathered_preds, dim=0).cpu().numpy()
             all_targets = torch.cat(gathered_targets, dim=0).cpu().numpy()
-            # Save the training history, predictions, and targets
+            # Save the training history
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
                     "history": history,
@@ -236,19 +235,21 @@ def ddp_train(rank, world_size, train_dataset, test_dataset, config):
     # Initialize any necessary components for DDP
    
     setup(rank, world_size)
+    print(f"Process {rank} out of {world_size} says: {torch.cuda.device_count()} GPUs available\n")
+
     model = ClsSO3Net()
     model = model.to(rank)
     ddp_model = DDP(model, device_ids=[rank])
    
-    train_dataloader = prepare(train_dataset, rank, world_size, config['batch_size'], pin_memory=False, num_workers=2)
-    test_dataloader = prepare(test_dataset,rank, world_size, 4, pin_memory=False, num_workers=2)
+    train_dataloader = prepare(train_dataset, rank, world_size, config['batch_size'], pin_memory=True, num_workers=3)
+    test_dataloader = prepare(test_dataset,rank, world_size, 4, pin_memory=True, num_workers=3)
     # Create the Trainer instance
     trainer = Trainer(ddp_model, train_dataloader, test_dataloader, config, rank, world_size)
     
     # Run the training and testing
     history = trainer.run()
     trainer.save(model_path = '/home/dc-su2/physical_informed/cnn/steerable/model.pth', 
-                 history_path = '/home/dc-su2/physical_informed/cnn/steerable/history.json',
+                 history_path = '/home/dc-su2/physical_informed/cnn/steerable/history.pkl',
                  history = history,
                  path = '/home/dc-su2/physical_informed/cnn/steerable/img/', 
                  world_size = world_size)
@@ -262,8 +263,8 @@ def main():
     config = parse_args()
     path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate1200.hdf5'
     x, y = get_data(path2)
-    xtr,xte = x[:32],x[1000:]
-    ytr,yte = y[:32],y[1000:]
+    xtr,xte = x[:1000],x[1000:]
+    ytr,yte = y[:1000],y[1000:]
 
     xtr = torch.Tensor(xtr)
     ytr = torch.Tensor(ytr)
