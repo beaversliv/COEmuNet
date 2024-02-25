@@ -49,7 +49,7 @@ def parse_args():
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
     parser.add_argument('--epochs', type = int, default = 100)
-    parser.add_argument('--batch_size', type = int, default = 16)
+    parser.add_argument('--batch_size', type = int, default = 32)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -68,37 +68,6 @@ def parse_args():
             ])
     
     return config
-
-def get_data(path):
-    sample = h5.File(path,'r')
-    x  = np.array(sample['input'],np.float32)   # shape(1200,3,64,64,64)
-    y = np.array(sample['output'], np.float32)# shape(1200,64,64,1)
-    
-    meta = {}
-
-    x_t = np.transpose(x, (1, 0, 2, 3, 4))
-    for idx in [0]:
-        meta[idx] = {}
-        meta[idx]['mean'] = x_t[idx].mean()
-        meta[idx]['std'] = x_t[idx].std()
-        x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
-    
-    for idx in [1, 2]:
-        meta[idx] = {}
-        meta[idx]['min'] = np.min(x_t[idx])
-        meta[idx]['median'] = np.median(x_t[idx])
-        x_t[idx] = np.log(x_t[idx])
-        
-        x_t[idx] = x_t[idx] - np.min(x_t[idx])
-        x_t[idx] = x_t[idx]/np.median(x_t[idx])
-    
-    y_v = y.reshape(-1)
-    y = np.where(y == 0, np.min(y_v[y_v != 0]), y)
-    y = np.log(y)
-    y = y-np.min(y)
-    y = y/np.median(y)
-    
-    return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
 
 # file paths for train, vali and test
 ### torch data loader ###
@@ -179,8 +148,12 @@ class Trainer:
 
 def main():
     config = parse_args()
-    path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate1200.hdf5'
-    x, y = get_data(path2)
+    # read data
+    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate1200.hdf5'
+    with h5.File(path,'r') as file:
+        x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
+        y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
+    # train test split
     xtr,xte = x[:1000],x[1000:]
     ytr,yte = y[:1000],y[1000:]
 
