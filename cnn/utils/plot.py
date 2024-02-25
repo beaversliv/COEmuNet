@@ -35,7 +35,7 @@ def show(img_data,path):
 
 
 def img_plt(target,pred,path):
-    for i in range(0,200,10):
+    for i in range(0,len(pred),10):
         fig, axs = plt.subplots(1, 2,figsize=(12, 5))
         im1 = axs[0].imshow(target[i][0],vmin=np.min(target[i][0]),vmax = np.max(target[i][0]))
         axs[0].set_title('target')
@@ -46,3 +46,20 @@ def img_plt(target,pred,path):
         fig.colorbar(im2,ax=axs[1])
         plt.savefig(f'{path}ex{i}.png')
         plt.close()
+
+def history_plt(trainLoss:list,valLoss:list,path:str):
+    ''' 
+    plot training history according to train and validation losses.
+    '''
+    epoch = len(trainLoss)
+    plt.figure(figsize=(6,4))
+    plt.plot(np.arange(epoch),np.log(trainLoss),label='train')
+    plt.plot(np.arange(epoch),np.log(valLoss),label='val')
+
+    plt.legend()
+    plt.title('Training History')
+    plt.xlabel('epoch')
+    plt.ylabel('log MSE+L1F')
+    plt.grid(True)
+    plt.savefig(f'{path}history.png')
+    plt.show()

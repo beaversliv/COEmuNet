@@ -6,7 +6,7 @@ from torch.autograd import Variable
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.model          import Net
 from utils.loss           import Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
-from utils.plot           import img_plt
+from utils.plot           import img_plt,history_plt
 
 # helper packages
 import h5py as h5
@@ -230,6 +230,7 @@ def main():
     print('SSIM: {:.4f}'.format(avg_ssim))
     # plot pred-targ
     img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
+    history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
     # torch.save(model.state_dict(),'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/model.pth')
 
 if __name__ == '__main__':
