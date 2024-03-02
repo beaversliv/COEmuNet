@@ -5,7 +5,7 @@ from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.model          import Net
-from utils.loss           import Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 
 # helper packages
@@ -46,7 +46,7 @@ def parse_args():
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
     parser.add_argument('--epochs', type = int, default = 100)
-    parser.add_argument('--batch_size', type = int, default = 32)
+    parser.add_argument('--batch_size', type = int, default = 64)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -131,8 +131,8 @@ class Trainer:
 def main():
     config = parse_args()
     # file paths for train, vali and test
-    file_statistics = '/home/dc-su2/physical_informed/cnn/original/unrotate_statistics.pkl'
-    train_file_path = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/face_on/clean_train_{i}.hdf5' for i in range(4)]
+    file_statistics = '/home/dc-su2/physical_informed/cnn/original/statistics.pkl'
+    train_file_path = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/clean_train_{i}.hdf5' for i in range(4)]
     vali_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/clean_vali.hdf5']
     test_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/clean_test.hdf5']
 
@@ -150,10 +150,10 @@ def main():
 
     ### set a model ###
     model = Net().to(device)
-   
-    resnet34 = ResNetFeatures().to(device)
-    loss_object = Lossfunction(resnet34,mse_loss_scale = 0.5,freq_loss_scale=0.5, perceptual_loss_scale=0.0)
     
+    # resnet34 = ResNetFeatures().to(device)
+    # loss_object = Lossfunction(resnet34,mse_loss_scale = 0.8,freq_loss_scale=0.2, perceptual_loss_scale=0.0)
+    loss_object = SobelMse(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
 
@@ -170,19 +170,18 @@ def main():
     print('Test Epoch: {} Loss: {:.4f}\n'.format(
                 config["epochs"], test_loss))
     data = (tr_losses, vl_losses,pred, target)
-    
-    # with open("/home/dc-su2/physical_informed/cnn/original/results/history.pkl", "wb") as pickle_file:
-    #     pickle.dump(data, pickle_file)
-    
 
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
     avg_ssim = calculate_ssim_batch(target,pred)
     print('SSIM: {:.4f}'.format(avg_ssim))
-    # plot pred-targ
-    img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
+
+    # plot and save history
+    img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/original/results/img/')
     history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/original/results/')
-    # torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/original/results/model.pth')
+    with open("/home/dc-su2/physical_informed/cnn/original/results/history.pkl", "wb") as pickle_file:
+        pickle.dump(data, pickle_file)
+    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/original/results/model.pth')
 
 
 if __name__ == '__main__':

@@ -223,3 +223,59 @@ def calculate_ssim_batch(target,pred):
     # Average SSIM over the batch
     avg_ssim = np.mean(ssim_scores)
     return avg_ssim
+
+class EdgeLoss(nn.Module):
+    def __init__(self):
+        super(EdgeLoss, self).__init__()
+        # Define Sobel edge detection filters
+        self.conv_op_x = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
+        self.conv_op_y = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
+        
+        # Initialize filters for edge detection (Sobel kernels)
+        sobel_kernel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]).view((1, 1, 3, 3))
+        sobel_kernel_y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]]).view((1, 1, 3, 3))
+        
+        self.conv_op_x.weight.data = sobel_kernel_x
+        self.conv_op_y.weight.data = sobel_kernel_y
+        
+        # Do not update weights during training
+        for param in self.conv_op_x.parameters():
+            param.requires_grad = False
+            
+        for param in self.conv_op_y.parameters():
+            param.requires_grad = False
+
+    def forward(self, pred, target):
+        # Ensure the input tensor is grayscale
+        if pred.size(1) != 1:
+            pred = pred.mean(dim=1, keepdim=True)
+        if target.size(1) != 1:
+            target = target.mean(dim=1, keepdim=True)
+        
+        # Apply the Sobel filter to the predicted and target images
+        edge_pred_x = self.conv_op_x(pred)
+        edge_pred_y = self.conv_op_y(pred)
+        edge_target_x = self.conv_op_x(target)
+        edge_target_y = self.conv_op_y(target)
+        
+        # Calculate loss as the L1 difference between edges
+        loss_x = nn.functional.l1_loss(edge_pred_x, edge_target_x)
+        loss_y = nn.functional.l1_loss(edge_pred_y, edge_target_y)
+        
+        # Combine losses for both x and y edge detections
+        loss = loss_x + loss_y
+        return loss
+
+class SobelMse(nn.Module):
+    def __init__(self,device):
+        super(SobelMse, self).__init__()
+        self.edge_loss = EdgeLoss().to(device)
+    
+    def forward(self, pred, target):
+        # Calculate the edge loss
+        loss_edge = self.edge_loss(pred, target)
+        # Calculate the MSE loss
+        loss_mse = nn.functional.mse_loss(pred, target)
+        # Combine the losses
+        loss_combined = 0.8 * loss_edge + 0.2 * loss_mse
+        return loss_combined
