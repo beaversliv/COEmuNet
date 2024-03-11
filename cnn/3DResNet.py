@@ -131,10 +131,10 @@ class Trainer:
 def main():
     config = parse_args()
     # file paths for train, vali and test
-    file_statistics = '/home/dc-su2/physical_informed/cnn/original/statistics.pkl'
-    train_file_path = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/clean_train_{i}.hdf5' for i in range(4)]
-    vali_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/clean_vali.hdf5']
-    test_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/clean_test.hdf5']
+    file_statistics = '/home/dc-su2/physical_informed/cnn/original/clean_statistics.pkl'
+    train_file_path = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_train_{i}.hdf5' for i in range(4)]
+    vali_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_vali.hdf5']
+    test_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_test.hdf5']
 
     custom_transform = CustomTransform(file_statistics)
     train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
@@ -144,7 +144,7 @@ def main():
     vali_dataloader = DataLoader(vali_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
 
     test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
-    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -179,9 +179,9 @@ def main():
     # plot and save history
     img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/original/results/img/')
     history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/original/results/')
-    with open("/home/dc-su2/physical_informed/cnn/original/results/history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/physical_informed/cnn/original/results/new_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
-    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/original/results/model.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/original/results/new_model.pth')
 
 
 if __name__ == '__main__':
