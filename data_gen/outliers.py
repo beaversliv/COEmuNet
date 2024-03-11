@@ -1,6 +1,5 @@
 import h5py as h5
 import numpy as np
-import matplotlib.pyplot as plt
 
 class preProcessing:
     def __init__(self,path):
@@ -11,8 +10,7 @@ class preProcessing:
             x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
             y = np.array(sample['output'][:,:,:,15:16], np.float32)# shape(num_samples,64,64,1)
         # take logrithm
-        y_v = y.reshape(-1)
-        y = np.where(y == 0, np.min(y_v[y_v != 0]), y)
+        y[y==0] = np.min(y[y!=0])
         I = np.log(y)
         # difference = max - min
         max_values = np.max(I,axis=(1,2))
@@ -46,23 +44,30 @@ class preProcessing:
             x_t[idx] = x_t[idx] - np.min(x_t[idx])
             x_t[idx] = x_t[idx]/np.median(x_t[idx])
         
-        y_v = y.reshape(-1)
-        y = np.where(y == 0, np.min(y_v[y_v != 0]), y)
+        y[y == 0] = np.min(y[y != 0])
         y = np.log(y)
+        # y_flat = y.reshape(y.shape[0], -1) # reshape to (num_samples, 64*64*1)
+        # min_values = np.min(y_flat, axis=1)
+        # max_values = np.max(y_flat, axis=1)
+
+        # a_flat = (y_flat - min_values[:, np.newaxis])/(max_values[:,np.newaxis] - min_values[:,np.newaxis])
+        # clean_y = a_flat.reshape(y.shape)
+        
         y = y-np.min(y)
         y = y/np.median(y)
-        
         return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
+        # return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(clean_y, (0,3,1,2))
 
 def main():
-    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate1200.hdf5'
-    preprocessing = preProcessing(path)
-    clean_x,clean_y = preprocessing.get_data()
-
-    print(clean_x.shape,clean_y.shape)
-    with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate1200.hdf5', 'w') as file:
-        file['input'] = clean_x
-        file['output']= clean_y
+    for i in range(5):
+        path = f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate12000_{i}.hdf5'
+        preprocessing = preProcessing(path)
+        clean_x,clean_y = preprocessing.outliers()
+        print(clean_x.shape, clean_y.shape)
+        # print(clean_x.shape,clean_y.shape)
+        with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5', 'w') as file:
+            file['input'] = clean_x
+            file['output']= clean_y
 
 if __name__ == '__main__':
     main()
