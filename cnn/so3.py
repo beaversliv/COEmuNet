@@ -1,17 +1,22 @@
+import warnings
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=RuntimeWarning)
+    from utils.so3_model      import ClsSO3Net
+
+
 import torch
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-
-
 from torch.profiler import profile, record_function, ProfilerActivity
 
-from utils.so3_model      import ClsSO3Net
-# from utils.model import Net
-from utils.loss           import Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
-from utils.plot           import img_plt
+from utils.dataloader     import CustomTransform,IntensityDataset
+
+from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.plot           import img_plt,history_plt
 
 import h5py as h5
 import numpy as np
@@ -27,7 +32,17 @@ from torch.cuda.amp import GradScaler, autocast
 from thop import profile
 import subprocess
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+if torch.cuda.is_available():
+    # Print the number of available GPUs
+    num_gpus = torch.cuda.device_count()
+    print(f"Number of available GPUs: {num_gpus}")
+    # Get the name of the current GPU (if there is more than one)
+    current_gpu = torch.cuda.current_device()
+    print(f"Name of the current GPU: {torch.cuda.get_device_name(current_gpu)}")
+else:
+    print("No GPU available, using CPU.")
+
 
 def get_gpu_utilization():
     print('get utilization started')
@@ -53,15 +68,7 @@ def get_gpu_memory():
         print(e.output)
         return None
 
-if torch.cuda.is_available():
-    # Print the number of available GPUs
-    num_gpus = torch.cuda.device_count()
-    print(f"Number of available GPUs: {num_gpus}")
-    # Get the name of the current GPU (if there is more than one)
-    current_gpu = torch.cuda.current_device()
-    print(f"Name of the current GPU: {torch.cuda.get_device_name(current_gpu)}")
-else:
-    print("No GPU available, using CPU.")
+
 
 seed = 1234
 np.random.seed(seed)
@@ -72,7 +79,7 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
-    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--epochs', type = int, default = 50)
     parser.add_argument('--batch_size', type = int, default = 8)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -95,8 +102,8 @@ def parse_args():
 
 def get_data(path):
     sample = h5.File(path,'r')
-    x  = np.array(sample['input'],np.float32)   # shape(100,3,100,100,100)
-    y = np.array(sample['output'][:,:,:,15:16], np.float32)# shape(100,1,256,256)
+    x  = np.array(sample['input'],np.float32)   # shape(1200,3,64,64,64)
+    y = np.array(sample['output'], np.float32)# shape(1200,64,64,1)
     
     meta = {}
 
@@ -141,14 +148,20 @@ class Trainer:
          
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+            # memory_info = get_gpu_memory()
+            # print(f'GPU Memory usage after loading data in epoch 1 {memory_info}')
             self.optimizer.zero_grad()
             latent,output = self.model(data)
+
             loss = self.loss_object(target, output)
             loss.backward()
             self.optimizer.step()
             total_loss += loss.detach().cpu().numpy()
+            # memory_info = get_gpu_memory()
+            # print(f'GPU Memory usage after an iteration in epoch 1 {memory_info}')
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
-
+        # memory_info = get_gpu_memory()
+        # print(f'GPU Memory usage after epoch 1 {memory_info}')
         return epoch_loss
 
     
@@ -173,6 +186,7 @@ class Trainer:
         vl_losses = []
         for epoch in tqdm(range(self.config['epochs'])):
             epoch_loss = self.train()
+
             torch.cuda.empty_cache()  # Clear cache after training
             
             _, _, val_loss = self.test()
@@ -189,29 +203,45 @@ class Trainer:
 
 def main():
     config = parse_args()
-    path2 = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate1200.hdf5'
-    x, y = get_data(path2)
-    xtr,xte = x[:1000],x[1000:]
-    ytr,yte = y[:1000],y[1000:]
+    file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl'
+    file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5' for i in range(5)]
 
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
+    train_file_path = file_paths[:4]
+    test_file_path  = file_paths[4:]
 
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
+    custom_transform = CustomTransform(file_statistics)
+    train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
+    train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
+
+    test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
+    test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+
+    # path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_1200rotate.hdf5'
+    # with h5.File(path,'r') as file:
+    #     x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
+    #     y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
+    # # train test split
+    # xtr,xte = x[:1000],x[1000:]
+    # ytr,yte = y[:1000],y[1000:]
+
+    # xtr = torch.tensor(xtr,dtype=torch.float32)
+    # ytr = torch.tensor(ytr,dtype=torch.float32)
+    # xte = torch.tensor(xte,dtype=torch.float32)
+    # yte = torch.tensor(yte,dtype=torch.float32)
+
+    # train_dataset = TensorDataset(xtr, ytr)
+    # test_dataset = TensorDataset(xte, yte)
 
     ### torch data loader ###
-    train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
+    # train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
+    # test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
     model = ClsSO3Net().to(device)
    
-    resnet34 = ResNetFeatures().to(device)
-    loss_object = Lossfunction(resnet34,mse_loss_scale = 0.7,freq_loss_scale=0.1, perceptual_loss_scale=0.2)
-    
+    # resnet34 = ResNetFeatures().to(device)
+    # loss_object = Lossfunction(resnet34,mse_loss_scale = 0.5,freq_loss_scale=0.5, perceptual_loss_scale=0.0)
+    loss_object = SobelMse(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
     ### start training ###
@@ -228,17 +258,17 @@ def main():
                 config["epochs"], test_loss))
     data = (tr_losses, vl_losses,pred, target)
     
-    # with open("/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/history.pkl", "wb") as pickle_file:
-    #     pickle.dump(data, pickle_file)
+    with open("/home/dc-su2/physical_informed/cnn/steerable/history.pkl", "wb") as pickle_file:
+        pickle.dump(data, pickle_file)
     
-
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
     avg_ssim = calculate_ssim_batch(target,pred)
     print('SSIM: {:.4f}'.format(avg_ssim))
     # plot pred-targ
-    # img_plt(target,pred,path='/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/img/')
-    # torch.save(model.state_dict(),'/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/steerable/model.pth')
+    # img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/steerable/img/')
+    history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/steerable/')
+    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/steerable/model.pth')
 
 if __name__ == '__main__':
     main()
