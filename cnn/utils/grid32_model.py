@@ -100,11 +100,9 @@ class Net(nn.Module):
         self.encoder0 = Encoder(1)
         self.encoder1 = Encoder(1)
         self.encoder2 = Encoder(1)
-        
-        # self.to_lat = nn.Linear(32*4*4*4*3, 8*8*8)
-        # self.to_dec = nn.Linear(8*8*8, 64*8*8) #64*8*8
-        self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
-        self.to_dec = nn.Linear(16*16*16,64*8*8)
+        # grid 32
+        self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
+        self.to_dec = nn.Linear(16*16*16,64*4*4)
         self.decoder= Decoder(in_channels=64, out_channels=1)
         
         
@@ -122,9 +120,8 @@ class Net(nn.Module):
         # (batch, 16*16*16)
         x_latent = self.to_lat(x) #dense layer
         x = nn.ReLU()(self.to_dec(x_latent)) # latent space
-        x = x.view(-1, 64, 8, 8)
-      
-	# shape (batch_size,64,8,8)
+        x = x.view(-1, 64, 4, 4)
+        
         output = self.decoder(x)
         return x_latent, output
 
