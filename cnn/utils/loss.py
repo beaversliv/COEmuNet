@@ -193,14 +193,6 @@ class Lossfunction(nn.Module):
 
         return perceptual_loss
 
-### Define the Perceptual Loss Function ###
-def perceptual_loss(generated_features, target_features):
-    mse_loss = torch.nn.MSELoss()
-    perceptual_loss = 0.0
-
-    for gf, tf in zip(generated_features, target_features):
-        perceptual_loss += mse_loss(gf, tf)
-    return perceptual_loss
 def mean_absolute_percentage_error(true,pred):
     # Avoid division by zero
     true, pred = true + 1e-8, pred + 1e-8
@@ -214,9 +206,7 @@ def calculate_ssim_batch(target,pred):
     ssim_scores = []
     for i in range(batch_size):
         pred_img = pred[i,0,:,:]
-        target_img = target[i,0,:,:] #(64,64,1)
-
-        # Calculate SSIM, assuming multichannel (color) images
+        target_img = target[i,0,:,:] #(1,64,64)
         score = ssim(target_img,pred_img, data_range=target_img.max() - target_img.min())
         ssim_scores.append(score)
 
@@ -279,3 +269,26 @@ class SobelMse(nn.Module):
         # Combine the losses
         loss_combined = 0.8 * loss_edge + 0.2 * loss_mse
         return loss_combined
+
+
+class SobelRelative(nn.Module):
+    def __init__(self,device):
+        super(SobelRelative, self).__init__()
+        self.edge_loss = EdgeLoss().to(device)
+    def forward(self,preds,targets):
+        # edge detection 
+        loss_edge = self.edge_loss(preds, targets)
+        # relative loss 1
+        mean_preds = preds.mean(dim=[1, 2, 3],keepdim=True)  # Assuming preds is of shape [batch_size, channels, height, width]
+        mean_targets = targets.mean(dim=[1, 2, 3],keepdim=True)
+        relative_mean = nn.functional.mse_loss(mean_preds, mean_targets)
+        # relative loss 2
+        relativeMean = nn.functional.mse_loss(preds/mean_preds,targets/mean_targets)
+
+        # Combine the losses
+        alpha = 0.5
+        beta  = 0.25
+        gamma = 0.25
+        loss_combined = alpha*loss_edge + beta*relative_mean + gamma*relativeMean
+
+        return loss_edge,relative_mean,relativeMean,loss_combined

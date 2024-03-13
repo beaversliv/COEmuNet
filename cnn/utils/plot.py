@@ -53,13 +53,12 @@ def history_plt(trainLoss:list,valLoss:list,path:str):
     '''
     epoch = len(trainLoss)
     plt.figure(figsize=(6,4))
-    plt.plot(np.arange(epoch),np.log(trainLoss),label='train')
-    plt.plot(np.arange(epoch),np.log(valLoss),label='val')
-
+    plt.plot(np.arange(epoch),trainLoss,label='train')
+    plt.plot(np.arange(epoch),valLoss,label='val')
     plt.legend()
     plt.title('Training History')
     plt.xlabel('epoch')
-    plt.ylabel('log MSE+L1F')
+    plt.ylabel('MSE + Sobel edge detection')
     plt.grid(True)
     plt.savefig(f'{path}history.png')
     plt.show()

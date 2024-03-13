@@ -420,9 +420,9 @@ class ClsSO3VoxConvModel(torch.nn.Module):
 
         return x
 
-class ClsSO3Net(torch.nn.Module):
+class SO3Net(torch.nn.Module):
     def __init__(self):
-        super(ClsSO3Net,self).__init__()
+        super(SO3Net,self).__init__()
         self.encoder0 = ClsSO3VoxConvModel(freq=1,scale=1)
         self.encoder1 = ClsSO3VoxConvModel(freq=1,scale=1)
         self.encoder2 = ClsSO3VoxConvModel(freq=1,scale=1)
