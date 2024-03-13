@@ -6,6 +6,7 @@ import numpy              as np
 import h5py               as h5
 import math
 import time
+import logging
 import sys
 from p3droslo.model       import TensorModel
 from p3droslo.lines       import Line
@@ -74,14 +75,29 @@ def data_gen(model_file,radius,type_='or'):
     co = abundance[:,1]
     vturb = np.sqrt(vturb2)
 
-    # input cubes
-    haar = Haar(position, q=8)
-    nCO_dat   = haar.map_data(co, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    vturb_dat = haar.map_data(vturb, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    haar = Haar(position, q=9)
+    nCO_dat   = haar.map_data(co, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    vturb_dat = haar.map_data(vturb, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    # get grid 32,don't touch!!!
+    # haar = Haar(position, q=7)
+    # nCO_dat   = haar.map_data(co, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+    # tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+    # vturb_dat = haar.map_data(vturb, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+    # v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+    # v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+    # v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+    # input cubes for grid 64, don't touch!!!
+    # haar = Haar(position, q=8)#q=8, gens (128,128,128)
+    # nCO_dat   = haar.map_data(co, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    # tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    # vturb_dat = haar.map_data(vturb, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    # v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    # v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    # v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
     
     # creare model
     p3droslo_model = TensorModel(shape=nCO_dat.shape, sizes=haar.xyz_L)
@@ -105,6 +121,7 @@ def data_gen(model_file,radius,type_='or'):
     # Avoid negative values (should probably avoid these earlier...)
     img = torch.abs(img)
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
+
 line = Line(
         species_name = "co",
         transition   = 0,
@@ -113,34 +130,41 @@ line = Line(
     )
 
 def main(type_):
+    # setup logging
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
-
-    name_lists = '/home/dc-su2/physical_informed/data_gen/datasets.json'
+    
+    name_lists = '/home/dc-su2/physical_informed/data_gen/grid128_data.json'
     with open(name_lists,'r') as file:
         lists = json.load(file)
     datasets   = lists['datasets']
     radius     = float(lists['radius'])
+
     model_files = model_find()
 
     if type_ == 'or':
-        datasets = datasets[:10903]
-        
+        datasets = datasets[:800]
+        # logging.basicConfig(filename=f'runtime32.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     elif type_ == 'r1':
-        datasets = datasets[10903:10903*2]
+        datasets = datasets[800:1600]
         
     else:
-        datasets = datasets[10903*2:]
+        datasets = datasets[1600:]
         
     n_tasks    = len(datasets)
     # tasks_per_rank = int(n_tasks / nproc)
     tasks_per_rank = math.ceil(n_tasks / nproc)
     start_index = rank*tasks_per_rank
     end_index = min(rank*tasks_per_rank + tasks_per_rank, n_tasks)
-    print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
+    # print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
     for idx in range(start_index,end_index):
+        start = time.time()
         nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],radius,type_)
+        end = time.time()
+        running_time = end - start
+        
+        # logging.info(f'Running time: {running_time:.5} seconds')
         path = datasets[idx]
         print(f'writing {path}\n {model_files[idx]}\n')
         with h5.File(path, "w") as file:
