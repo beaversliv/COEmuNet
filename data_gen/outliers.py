@@ -46,28 +46,20 @@ class preProcessing:
         
         y[y == 0] = np.min(y[y != 0])
         y = np.log(y)
-        # y_flat = y.reshape(y.shape[0], -1) # reshape to (num_samples, 64*64*1)
-        # min_values = np.min(y_flat, axis=1)
-        # max_values = np.max(y_flat, axis=1)
-
-        # a_flat = (y_flat - min_values[:, np.newaxis])/(max_values[:,np.newaxis] - min_values[:,np.newaxis])
-        # clean_y = a_flat.reshape(y.shape)
         
         y = y-np.min(y)
         y = y/np.median(y)
         return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
-        # return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(clean_y, (0,3,1,2))
 
 def main():
-    for i in range(5):
-        path = f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/rotate12000_{i}.hdf5'
-        preprocessing = preProcessing(path)
-        clean_x,clean_y = preprocessing.outliers()
-        print(clean_x.shape, clean_y.shape)
-        # print(clean_x.shape,clean_y.shape)
-        with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5', 'w') as file:
-            file['input'] = clean_x
-            file['output']= clean_y
+    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/grid64/random/batches.hdf5'
+    preprocessing = preProcessing(path)
+    clean_x,clean_y = preprocessing.get_data()
+    print(clean_y.shape)
+    with h5.File(f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/grid64/random/clean_batches.hdf5', 'w') as file:
+        file['input'] = clean_x
+        file['output']= clean_y
+    
 
 if __name__ == '__main__':
     main()
