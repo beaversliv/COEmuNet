@@ -95,20 +95,20 @@ class Decoder(nn.Module):
         return x
 
 class Net(nn.Module):
-    def __init__(self,model_grid='grid64'):
+    def __init__(self,model_grid=64):
         super(Net, self).__init__()
         self.model_grid = model_grid
         self.encoder0 = Encoder(1)
         self.encoder1 = Encoder(1)
         self.encoder2 = Encoder(1)
         # grid 64
-        if model_grid == 'grid32':
+        if model_grid == 32:
             self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*4*4)
-        elif model_grid =='grid64':
+        elif model_grid == 64:
             self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*8*8)
-        elif model_grid =='grid128':
+        elif model_grid == 128:
             self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*16*16)
         self.decoder= Decoder(in_channels=64, out_channels=1)
@@ -118,6 +118,7 @@ class Net(nn.Module):
         x0 = self.encoder0(x[:, 0:1, :, :, :])
         x1 = self.encoder1(x[:, 1:2, :, :, :])
         x2 = self.encoder2(x[:, 2:3, :, :, :])
+      
         # x0 shape (batch size, 32*4*4*4)
         x0 = torch.flatten(x0, start_dim=1)   
         x1 = torch.flatten(x1, start_dim=1)   
@@ -129,11 +130,11 @@ class Net(nn.Module):
         x_latent = self.to_lat(x) #dense layer
         x = nn.ReLU()(self.to_dec(x_latent)) # latent space
         # grid 64
-        if self.model_grid == 'grid32':
+        if self.model_grid == 32:
             x = x.view(-1, 64, 4, 4)
-        elif self.model_grid =='grid64':
+        elif self.model_grid == 64:
             x = x.view(-1, 64, 8, 8)
-        elif self.model_grid =='grid128':
+        elif self.model_grid == 128:
             x = x.view(-1, 64, 16, 16)
         
 	    # shape (batch_size,64,8,8)
