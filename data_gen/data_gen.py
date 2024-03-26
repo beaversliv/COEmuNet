@@ -74,14 +74,14 @@ def data_gen(model_file,radius,type_='or'):
     v_z = velocity[:,2]
     co = abundance[:,1]
     vturb = np.sqrt(vturb2)
-
-    haar = Haar(position, q=9)
-    nCO_dat   = haar.map_data(co, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    vturb_dat = haar.map_data(vturb, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+     # get grid 128,don't touch!!!
+    # haar = Haar(position, q=9)
+    # nCO_dat   = haar.map_data(co, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    # tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    # vturb_dat = haar.map_data(vturb, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    # v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    # v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+    # v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
     # get grid 32,don't touch!!!
     # haar = Haar(position, q=7)
     # nCO_dat   = haar.map_data(co, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
@@ -91,13 +91,13 @@ def data_gen(model_file,radius,type_='or'):
     # v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
     # v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
     # input cubes for grid 64, don't touch!!!
-    # haar = Haar(position, q=8)#q=8, gens (128,128,128)
-    # nCO_dat   = haar.map_data(co, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    # tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    # vturb_dat = haar.map_data(vturb, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    # v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    # v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    # v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    haar = Haar(position, q=8)#q=8, gens (128,128,128)
+    nCO_dat   = haar.map_data(co, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    vturb_dat = haar.map_data(vturb, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
     
     # creare model
     p3droslo_model = TensorModel(shape=nCO_dat.shape, sizes=haar.xyz_L)
@@ -124,7 +124,7 @@ def data_gen(model_file,radius,type_='or'):
 
 line = Line(
         species_name = "co",
-        transition   = 0,
+        transition   = 1,
         datafile     = "/home/dc-su2/physical_informed/data_gen/co.txt",
         molar_mass   = 28.0
     )
@@ -135,7 +135,7 @@ def main(type_):
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
     
-    name_lists = '/home/dc-su2/physical_informed/data_gen/grid128_data.json'
+    name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/mul_freq_gird64.json'
     with open(name_lists,'r') as file:
         lists = json.load(file)
     datasets   = lists['datasets']
@@ -144,13 +144,15 @@ def main(type_):
     model_files = model_find()
 
     if type_ == 'or':
-        datasets = datasets[:800]
-        # logging.basicConfig(filename=f'runtime32.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    elif type_ == 'r1':
-        datasets = datasets[800:1600]
+        datasets = datasets[:10903]
         
-    else:
-        datasets = datasets[1600:]
+    elif type_ == 'r1':
+        datasets = datasets[:10903]
+        # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/faceon_runtime128_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    elif type_ == 'r2':
+        datasets = datasets[10903:10903*2]
+    elif type_ == 'r3':
+        datasets = datasets[10903*3:]
         
     n_tasks    = len(datasets)
     # tasks_per_rank = int(n_tasks / nproc)
