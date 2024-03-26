@@ -10,7 +10,7 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=RuntimeWarning)
     from utils.so3_model      import SO3Net
 from utils.trainclass     import Trainer
-from data                 import load_face_on_view_grid64, load_random_view_grid64_12000, load_face_on_view_grid32, load_random_view_grid32
+from data                 import load_face_on_view_grid64, load_random_view_grid64_12000, load_face_on_view_grid32, load_random_view_grid32,load_face_on_view_grid128,load_random_on_view_grid128
 from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 from utils.config         import faceon_args
@@ -59,11 +59,11 @@ def main():
             train_dataset, test_dataset = load_face_on_view_grid64()
         elif args.dataset == 'random':
             train_dataset, test_dataset = load_random_view_grid64()
-    # if args.model_grid == 128:
-    #     if args.dataset == 'faceon':
-    #         train_dataset, test_dataset = load_face_on_view_grid64()
-    #     elif args.dataset == 'random':
-    #         train_dataset, test_dataset = load_random_view_grid64()
+    if args.model_grid == 128:
+        if args.dataset == 'faceon':
+            train_dataset, test_dataset = load_face_on_view_grid128()
+        elif args.dataset == 'random':
+            train_dataset, test_dataset = load_random_view_grid128()
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,num_workers=2)
     vali_dataloader = DataLoader(vali_dataset, batch_size=args.batch_size, shuffle=True,num_workers=2)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
@@ -80,7 +80,7 @@ def main():
 
     ### start training ###
     start = time.time()
-    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, args, device)
+    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, args, device,args.model_grid)
     tr_losses, vl_losses = trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
