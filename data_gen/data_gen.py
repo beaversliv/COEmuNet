@@ -19,14 +19,15 @@ import magritte.core      as magritte
 from astropy             import constants
 from scipy.spatial.transform import Rotation
 from tools               import model_find
-def data_gen(model_file,radius,type_='or'):
+def data_gen(model_file,line,radius,type_='or'):
     with h5.File(model_file,'r') as f:
         position = np.array(f['geometry/points/position'])
         velocity = np.array(f['geometry/points/velocity'])* constants.c.si.value
         temperature = np.array(f['thermodynamics/temperature/gas'])
         abundance   = np.array(f['chemistry/species/abundance'])
         vturb2      = np.array(f['thermodynamics/turbulence/vturb2'])
-        fcen        = f['lines/lineProducingSpecies_0/linedata/frequency'][0]
+    
+    fcen = line.frequency
     vpix = 300   # velocity pixel size [m/s] 
     nqua = 31
     dd   = vpix * (nqua-1)/2 / constants.c.si.value
@@ -122,24 +123,25 @@ def data_gen(model_file,radius,type_='or'):
     img = torch.abs(img)
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
 
-line = Line(
-        species_name = "co",
-        transition   = 1,
-        datafile     = "/home/dc-su2/physical_informed/data_gen/co.txt",
-        molar_mass   = 28.0
-    )
 
 def main(type_):
     # setup logging
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
-    
+    # 
     name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/mul_freq_gird64.json'
     with open(name_lists,'r') as file:
         lists = json.load(file)
     datasets   = lists['datasets']
     radius     = float(lists['radius'])
+
+    line = Line(
+        species_name = "co",
+        transition   = 1,
+        datafile     = "/home/dc-su2/physical_informed/data_gen/co.txt",
+        molar_mass   = 28.0
+    )
 
     model_files = model_find()
 
@@ -162,13 +164,14 @@ def main(type_):
     # print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
     for idx in range(start_index,end_index):
         start = time.time()
-        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],radius,type_)
+        print(f'reading {model_files[idx]}')
+        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line,radius,type_)
         end = time.time()
         running_time = end - start
         
         # logging.info(f'Running time: {running_time:.5} seconds')
         path = datasets[idx]
-        print(f'writing {path}\n {model_files[idx]}\n')
+        print(f'writing {path}\n')
         with h5.File(path, "w") as file:
             file.create_dataset('frequencies',  data=frequencies)
             file.create_dataset("CO",           data=nCO_dat)
