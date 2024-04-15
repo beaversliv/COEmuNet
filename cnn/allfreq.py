@@ -83,7 +83,7 @@ class preProcessing:
             input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
             output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
         # take logrithm
-        y = output_[:,:,:,12:19]
+        y = output_[:,:,:,15]
         y[y==0] = np.min(y[y!=0])
         I = np.log(y)
         # difference = max - min
@@ -95,7 +95,7 @@ class preProcessing:
 
         # remove outliers
         removed_x = np.delete(input_,outlier_idx,axis=0)
-        removed_y = np.delete(I,outlier_idx,axis=0)
+        removed_y = np.delete(output_,outlier_idx,axis=0)
         return removed_x, removed_y
 
     def get_data(self):
@@ -117,7 +117,8 @@ class preProcessing:
             
             x_t[idx] = x_t[idx] - np.min(x_t[idx])
             x_t[idx] = x_t[idx]/np.median(x_t[idx])
-        
+        y[y==0] = np.min(y[y!=0])
+        y = np.log(y)
         y -= np.min(y)
         y /= np.median(y)
         # y = (y - np.min(y))/ (np.max(y) - np.min(y))
