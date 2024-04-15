@@ -4,8 +4,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
-from utils.model          import Net
-from utils.loss           import SobelRelative,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.ResNet3DModel  import Net3D,Net
+from utils.loss           import SobelMse,Lossfunction,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 
 # helper packages
@@ -20,6 +20,7 @@ import pickle
 import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+from sklearn.model_selection      import train_test_split 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 seed = 1234
 np.random.seed(seed)
@@ -71,20 +72,58 @@ def parse_args():
             ])
     
     return config
+class preProcessing:
+    def __init__(self,path):
+        self.path = path
 
-# file paths for train, vali and test
-### torch data loader ###
-# file_statistics = '/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/rotate24000_statistics.pkl'
-# file_paths = [f'/data/astro1/ss1421/physical_forward/cnn/Batches/rotate24000_{i}.hdf5' for i in range(10)]
-# train_file_path = file_paths[:8]
-# vali_file_path  = file_paths[2:]
+    def outliers(self):
+        with h5.File(self.path,'r') as sample:
+            x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
+            y = np.array(sample['output'][:,:,:,15:16], np.float32)# shape(num_samples,64,64,1)
+        # take logrithm
+        y[y==0] = np.min(y[y!=0])
+        I = np.log(y)
+        # difference = max - min
+        max_values = np.max(I,axis=(1,2))
+        min_values = np.min(I,axis=(1,2))
+        diff = max_values - min_values
+        # find outliers
+        outlier_idx = np.where(diff>20)[0]
 
-# custom_transform = CustomTransform(file_statistics)
-# train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
-# train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
+        # remove outliers
+        removed_x = np.delete(x,outlier_idx,axis=0)
+        removed_y = np.delete(y,outlier_idx,axis=0)
+        return removed_x, removed_y
 
-# vali_dataset= IntensityDataset(vali_file_path,transform=custom_transform)
-# vali_dataloader = DataLoader(vali_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
+    def get_data(self):
+        x,y = self.outliers()
+        meta = {}
+
+        x_t = np.transpose(x, (1, 0, 2, 3, 4))
+        for idx in [0]:
+            meta[idx] = {}
+            meta[idx]['mean'] = x_t[idx].mean()
+            meta[idx]['std'] = x_t[idx].std()
+            x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
+        
+        for idx in [1, 2]:
+            meta[idx] = {}
+            meta[idx]['min'] = np.min(x_t[idx])
+            meta[idx]['median'] = np.median(x_t[idx])
+            x_t[idx] = np.log(x_t[idx])
+            
+            x_t[idx] = x_t[idx] - np.min(x_t[idx])
+            x_t[idx] = x_t[idx]/np.median(x_t[idx])
+        
+        y[y == 0] = np.min(y[y != 0])
+        y = np.log(y)
+        
+        y = y-np.min(y)
+        y = y/np.median(y)
+        y = (y-np.min(y)) / (np.max(y)-np.min(y))
+        y = np.transpose(y,(0,3,1,2))
+        # y = y[:,np.newaxis,:,:,:]
+        return np.transpose(x_t, (1, 0, 2, 3, 4)), y
 
 ### train step ###
 class Trainer:
@@ -99,148 +138,137 @@ class Trainer:
     
     def train(self):
         total_loss = 0.
-        edge_loss  = 0.
-        relative1  = 0.
-        relative2  = 0.
         self.model.train()
          
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+            # memory_info = get_gpu_memory()
+            # print(f'GPU Memory usage after loading data in epoch 1 {memory_info}')
             self.optimizer.zero_grad()
-            latent,output = self.model(data)
-            loss_edge,relative_mean,relativeMean,loss_combined = self.loss_object(target, output)
-            loss_combined.backward()
+            output = self.model(data)
+            
+            loss = self.loss_object(target, output)
+            # sys.exit()
+            loss.backward()
             self.optimizer.step()
-            total_loss += loss_combined.detach().cpu().numpy()
-
-            edge_loss += loss_edge.detach().cpu().numpy()
-            relative1 += relative_mean.detach().cpu().numpy()
-            relative2 += relativeMean.detach().cpu().numpy()
+            total_loss += loss.detach().cpu().numpy()
+            # memory_info = get_gpu_memory()
+            # print(f'GPU Memory usage after an iteration in epoch 1 {memory_info}')
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
-        edge_epoch_loss = edge_loss / len(self.train_dataloader)
-        relative1_epoch_loss = relative1 / len(self.train_dataloader)
-        relative2_epoch_loss = relative2 / len(self.train_dataloader)
-        return epoch_loss,edge_epoch_loss,relative1_epoch_loss,relative2_epoch_loss
+        # memory_info = get_gpu_memory()
+        # print(f'GPU Memory usage after epoch 1 {memory_info}')
+        return epoch_loss
 
     
     def test(self):
         self.model.eval()
-        P, T, L = [], [], torch.tensor(0.0).to(self.device)
-        each_loss = {'edge_loss': torch.tensor(0.0).to(self.device),
-                    'relative1': torch.tensor(0.0).to(self.device),
-                    'relative2': torch.tensor(0.0).to(self.device)}
-        num_batches = 0
-
+        P = []
+        T = []
+        L = []
         for bidx, samples in enumerate(self.test_dataloader):
-            data, target = samples[0].to(self.device), samples[1].to(self.device)
-            with torch.no_grad():
-                latent, pred = self.model(data)
-                loss_edge, relative_mean, relativeMean, loss_combined = self.loss_object(target, pred)
-
-            # Directly accumulate to tensors
-            L += loss_combined
-            each_loss['edge_loss'] += loss_edge
-            each_loss['relative1'] += relative_mean
-            each_loss['relative2'] += relativeMean
-            num_batches += 1
-
-            # For predictions and targets, consider batch aggregating if feasible
+            data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+            pred = self.model(data)
+            loss = self.loss_object(target, pred)
+            
             P.append(pred.detach().cpu().numpy())
             T.append(target.detach().cpu().numpy())
-
-        # Compute means
-        L /= num_batches
-        each_loss = {k: v / num_batches for k, v in each_loss.items()}
-
+            L.append(loss.detach().cpu().numpy())
         P = np.vstack(P)
         T = np.vstack(T)
-        return P, T, L.cpu().numpy(), each_loss['edge_loss'].cpu().numpy(), each_loss['relative1'].cpu().numpy(), each_loss['relative2'].cpu().numpy()
+        return P,T,np.mean(L)
     def run(self):
-    
-        loss_history = {
-        'train': {'total_loss': [], 'edge_loss': [], 'relative1_loss': [], 'relative2_loss': []},
-        'val': {'total_loss': [], 'edge_loss': [], 'relative1_loss': [], 'relative2_loss': []}
-        }
+        tr_losses = []
+        vl_losses = []
         for epoch in tqdm(range(self.config['epochs'])):
-            tr_loss,edge_loss_tr,relative1_loss_tr,relative2_loss_tr = self.train()
+            epoch_loss = self.train()
+
             torch.cuda.empty_cache()  # Clear cache after training
             
-            _, _, val_loss, edge_loss_vl,relative1_loss_vl,relative2_loss_vl = self.test()
+            _, _, val_loss = self.test()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            loss_history['train']['total_loss'].append(tr_loss)
-            loss_history['train']['edge_loss'].append(edge_loss_tr)
-            loss_history['train']['relative1_loss'].append(relative1_loss_tr)
-            loss_history['train']['relative2_loss'].append(relative2_loss_tr)
-
-            loss_history['val']['total_loss'].append(val_loss)
-            loss_history['val']['edge_loss'].append(edge_loss_vl)
-            loss_history['val']['relative1_loss'].append(relative1_loss_vl)
-            loss_history['val']['relative2_loss'].append(relative2_loss_vl)
-
-            print(f'Train Epoch: {epoch}/{self.config["epochs"]} Loss: {tr_loss:.4f}')
-            print(f'Test Epoch: {epoch}/{self.config["epochs"]} Loss: {val_loss:.4f}\n')
+            tr_losses.append(epoch_loss)
+            vl_losses.append(val_loss)
+            print('Train Epoch: {}/{} Loss: {:.4f}'.format(
+                    epoch, self.config['epochs'], epoch_loss))
+            print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
+                epoch, self.config["epochs"], val_loss))
             
-        return loss_history
-
+        return tr_losses, vl_losses
 
 def main():
     config = parse_args()
-    # read data
-    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate1200.hdf5'
-    with h5.File(path,'r') as file:
-        x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
-        y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
+    # file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl'
+    # file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5' for i in range(5)]
+
+    # train_file_path = file_paths[:4]
+    # test_file_path  = file_paths[4:]
+
+    # custom_transform = CustomTransform(file_statistics)
+    # train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
+    # train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
+
+    # test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
+    # test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+    # path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/clean_random_1200.hdf5'
+    # with h5.File(path,'r') as file:
+    #     x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
+    #     y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
+    with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
+        x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
+        y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
+    # data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/random_12000.hdf5')
+    # x,y = data_gen.get_data()
+
     # train test split
-    xtr,xte = x[:1000],x[1000:]
-    ytr,yte = y[:1000],y[1000:]
+    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
 
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
     xte = torch.tensor(xte,dtype=torch.float32)
     yte = torch.tensor(yte,dtype=torch.float32)
+
     train_dataset = TensorDataset(xtr, ytr)
     test_dataset = TensorDataset(xte, yte)
 
-    ### torch data loader ###
+    ## torch data loader ###
     train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
-
-    ### set a model ###
-    model = Net().to(device)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
+    model = Net().to(device) 
+    # model = Net3D().to(device)
    
     # resnet34 = ResNetFeatures().to(device)
     # loss_object = Lossfunction(resnet34,mse_loss_scale = 0.5,freq_loss_scale=0.5, perceptual_loss_scale=0.0)
-    loss_object = SobelRelative(device)
+    loss_object = SobelMse(device,alpha=0.8,beta=0.2)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
     ### start training ###
     start = time.time()
     # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
     trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
-    loss_history = trainer.run()
+    tr_losses, vl_losses = trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
     
     ### validation ###
-    pred, target, test_loss,edge_loss,relative_loss2,relative_loss2 = trainer.test()
+    pred, target, test_loss = trainer.test()
     print('Test Epoch: {} Loss: {:.4f}\n'.format(
                 config["epochs"], test_loss))
+    data = (tr_losses, vl_losses,pred, target)
     
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
+    # target = target[:,0,:,:,:]
+    # pred = pred[:,0,:,:,:]
     avg_ssim = calculate_ssim_batch(target,pred)
-    print('SSIM: {:.4f}'.format(avg_ssim))
 
-    # # plot pred-targ
-    data = (loss_history,pred, target)
+    print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/physical_informed/cnn/rotate/results/history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/random_singleAll_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
-    img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
+    # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
-    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/rotate/results/model.pth')
+    # torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/random_multi__model.pth')
 
 if __name__ == '__main__':
     main()
