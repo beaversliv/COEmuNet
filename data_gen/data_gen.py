@@ -34,6 +34,8 @@ def data_gen(model_file,line,radius,type_='or'):
     fmin = fcen - fcen*dd
     fmax = fcen + fcen*dd
     frequencies = torch.linspace(fmin,fmax,nqua)
+    start_freq,end_freq = frequencies[11],frequencies[19]
+    frequencies = torch.linspace(start_freq,end_freq,31)
 
     x_min = position[:,0].min()
     x_max = position[:,0].max()
@@ -152,7 +154,7 @@ def main(type_):
         datasets = datasets[:10903]
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/faceon_runtime128_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     elif type_ == 'r2':
-        datasets = datasets[10903:10903*2]
+        datasets = datasets[10903:]
     elif type_ == 'r3':
         datasets = datasets[10903*3:]
         
