@@ -36,8 +36,8 @@ def data_gen(model_file,line,radius,type_='or',model_grid=64):
     fmax = fcen + fcen*dd
     frequencies = torch.linspace(fmin,fmax,nqua,dtype=torch.float64)
     # # redefine frequency range, only focused on intersted centred region
-    # start_freq,end_freq = frequencies[11],frequencies[19]
-    # frequencies = torch.linspace(start_freq,end_freq,31)
+    start_freq,end_freq = frequencies[11],frequencies[19]
+    frequencies = torch.linspace(start_freq,end_freq,31)
 
     x_min = position[:,0].min()
     x_max = position[:,0].max()
