@@ -8,11 +8,6 @@ import json
 import random
 import sys
 
-comm  = MPI.COMM_WORLD
-rank  = comm.Get_rank()
-nproc = comm.Get_size()
-procname = MPI.Get_processor_name()
-
 def load_dataset_names(json_file_path):
     '''
     locate paths for individual samples
@@ -20,10 +15,11 @@ def load_dataset_names(json_file_path):
     '''
     with open(json_file_path, 'r') as file:
         lists = json.load(file)
-    # face-on dataset    
-    return lists['datasets']
+    datasets = lists['datasets']   
+    random.shuffle(datasets)
+    return datasets
 
-def distribute_datasets(datasets, rank, nproc, segment_size=10903):
+def distribute_datasets(datasets, rank, nproc, segment_size=12000):
     '''
     split list of paths (datasets) into batches by
     marking start and end idx
@@ -36,7 +32,7 @@ def process_datasets(file_list):
     '''
     pack individual samples into baches based on the splited file paths
     '''
-    grid, freq, num_input = 32, 31, 3
+    grid, freq, num_input = 64, 31, 3
     X = np.zeros((len(file_list), num_input, grid, grid, grid))
     Y = np.zeros((len(file_list), grid, grid, freq))
     FREQS = np.zeros((len(file_list), freq))
@@ -70,12 +66,13 @@ if __name__ == "__main__":
     nproc = comm.Get_size()
 
     # name_lists = '/home/dc-su2/physical_informed/data_gen/datasets.json'
-    name_lists = '/home/dc-su2/physical_informed/data_gen/grid32_data.json'
+    name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/mul_freq_gird64.json'
     datasets = load_dataset_names(name_lists)
-    process_file_list = distribute_datasets(datasets, rank, nproc)
+    process_file_list = distribute_datasets(datasets, rank, nproc,len(datasets)//nproc)
 
     X, Y, FREQS = process_datasets(process_file_list)
-    output_file = f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/grid32/rotation/batches.hdf5'
+    print(Y.shape)
+    output_file = f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/CMB_{rank}.hdf5'
     save_processed_data(output_file, X, Y, FREQS)
     
     
