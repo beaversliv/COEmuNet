@@ -81,7 +81,7 @@ class preProcessing:
     def outliers(self):
         with h5.File(self.path,'r') as sample:
             input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
-            output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
+            output_ = np.array(sample['output'][:,:,:,12:19], np.float32)# shape(num_samples,64,64,1)
         return input_,output_
         # # take logrithm
         # y = output_[:,:,:,15]
@@ -130,9 +130,9 @@ class preProcessing:
         # y[y<=lower_whisker] = lower_whisker
         # pre-processing: reflect and take base 10 logrithmn
         y -= np.min(y)
-        y = y**(1/3)
-        y /= np.max(y)
-        # y /= np.median(y)
+        # y = y**(1/3)
+        # y /= np.max(y)
+        y /= np.median(y)
         # y = (y - np.min(y)) / (np.max(y) - np.min(y))
         # reflection_point = y.max() + 1
         # y = reflection_point - y
@@ -250,7 +250,7 @@ def main():
     train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-    model = Net3D(freq=31).to(device)
+    model = Net3D(freq=7).to(device)
 
     loss_object = SobelMse(device,alpha=0.8,beta=0.2)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
@@ -277,7 +277,7 @@ def main():
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_cmb_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_cmb7_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
