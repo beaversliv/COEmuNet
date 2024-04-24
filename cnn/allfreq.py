@@ -82,21 +82,22 @@ class preProcessing:
         with h5.File(self.path,'r') as sample:
             input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
             output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-        # take logrithm
-        y = output_[:,:,:,15]
-        y[y==0] = np.min(y[y!=0])
-        I = np.log(y)
-        # difference = max - min
-        max_values = np.max(I,axis=(1,2))
-        min_values = np.min(I,axis=(1,2))
-        diff = max_values - min_values
-        # find outliers
-        outlier_idx = np.where(min_values < -60)[0]
+        return input_,output_
+        # # take logrithm
+        # y = output_[:,:,:,15]
+        # y[y==0] = np.min(y[y!=0])
+        # I = np.log(y)
+        # # difference = max - min
+        # max_values = np.max(I,axis=(1,2))
+        # min_values = np.min(I,axis=(1,2))
+        # diff = max_values - min_values
+        # # find outliers
+        # outlier_idx = np.where(min_values < -50)[0]
 
-        # remove outliers
-        removed_x = np.delete(input_,outlier_idx,axis=0)
-        removed_y = np.delete(output_,outlier_idx,axis=0)
-        return removed_x, removed_y
+        # # remove outliers
+        # removed_x = np.delete(input_,outlier_idx,axis=0)
+        # removed_y = np.delete(output_,outlier_idx,axis=0)
+        # return removed_x, removed_y
 
     def get_data(self):
         x,y = self.outliers()
@@ -120,14 +121,22 @@ class preProcessing:
         y[y==0] = np.min(y[y!=0])
         y = np.log(y)
         # set threshold
-        y[y<=-60] = -60
+        # y[y<=-60] = -60
+        # q1 = np.percentile(y,25)
+        # q3 = np.percentile(y,75)
+        # IQR = q3 - q1
+        # lower_whisker = q1 - 1.5 * IQR
+        # # use lower_whisker as threshold
+        # y[y<=lower_whisker] = lower_whisker
         # pre-processing: reflect and take base 10 logrithmn
         y -= np.min(y)
-        reflection_point = y.max() + 1
-        y = reflection_point - y
-        y = np.log10(y)
-        
-        # y = (y - np.min(y))/ (np.max(y) - np.min(y))
+        y /= np.median(y)
+        y = (y - np.min(y)) / (np.max(y) - np.min(y))
+        # reflection_point = y.max() + 1
+        # y = reflection_point - y
+
+        # y = np.log10(y)
+        # print('>>>reflection point:', reflection_point)
         y = np.transpose(y,(0,3,1,2))
         y = y[:,np.newaxis,:,:,:]
         return np.transpose(x_t, (1, 0, 2, 3, 4)), y
@@ -221,7 +230,7 @@ def main():
     # with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
     #     x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
     #     y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/random_12000.hdf5')
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/CMB_1200.hdf5')
     x,y = data_gen.get_data()
 
     # train test split
@@ -266,7 +275,7 @@ def main():
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/random_multi_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_cmb_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
