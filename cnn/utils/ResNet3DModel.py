@@ -3,6 +3,14 @@ import torch.nn as nn
 import torchvision.models as models
 from collections import namedtuple
 import sys
+import torch.nn.init as init
+
+# Define custom He initialization function
+def he_init(layer):
+    if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
+        init.kaiming_normal_(layer.weight, nonlinearity='relu')  # He initialization for ReLU-based networks
+        if layer.bias is not None:
+            layer.bias.data.fill_(0)
 ### Resnet ###
 class Conv_BN_Relu(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
@@ -174,14 +182,16 @@ class Decoder3D(nn.Module):
         return x
 
 class Net3D(nn.Module):
-    def __init__(self):
+    def __init__(self,freq=31):
         super(Net3D, self).__init__()
+        self.apply(he_init)
+        self.freq     = freq     # number of frequencies
         self.encoder0 = Encoder(1)
         self.encoder1 = Encoder(1)
         self.encoder2 = Encoder(1)
         # grid 64
         self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
-        self.to_dec = nn.Linear(16*16*16,64*8*8*1)
+        self.to_dec = nn.Linear(16*16*16,64*8*8*self.freq)
         
         self.decoder3d= Decoder3D(in_channels=64, out_channels=1)
         
@@ -202,7 +212,7 @@ class Net3D(nn.Module):
         x_latent = self.to_lat(x) #dense layer
         x = nn.ReLU()(self.to_dec(x_latent)) # latent space
 
-        x = x.view(-1, 64, 1, 8, 8)  # treat 31 as a sequence or depth
+        x = x.view(-1, 64, self.freq, 8, 8)  # treat 31 as a sequence or depth
         
 	    # shape (batch_size,64,8,8)
         output = self.decoder3d(x)
@@ -211,7 +221,7 @@ class Net3D(nn.Module):
 if __name__ == '__main__':
     batch_size = 32
     z = torch.randn((batch_size,3,64,64,64)) # treat 31 as a sequence or depth
-    decoder = Net3D()
+    decoder = Net3D(freq=5)
     output_imgs = decoder(z)
     print(output_imgs.shape)
 
