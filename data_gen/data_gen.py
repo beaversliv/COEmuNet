@@ -11,6 +11,7 @@ import sys
 from p3droslo.model       import TensorModel
 from p3droslo.lines       import Line
 from p3droslo.haar        import Haar
+from p3droslo.utils       import planck  # CMB, big bang background
 
 from mpi4py               import MPI
 from astropy              import constants
@@ -19,7 +20,7 @@ import magritte.core      as magritte
 from astropy             import constants
 from scipy.spatial.transform import Rotation
 from tools               import model_find
-def data_gen(model_file,line,radius,type_='or'):
+def data_gen(model_file,line,radius,type_='or',model_grid=64):
     with h5.File(model_file,'r') as f:
         position = np.array(f['geometry/points/position'])
         velocity = np.array(f['geometry/points/velocity'])* constants.c.si.value
@@ -33,9 +34,10 @@ def data_gen(model_file,line,radius,type_='or'):
     dd   = vpix * (nqua-1)/2 / constants.c.si.value
     fmin = fcen - fcen*dd
     fmax = fcen + fcen*dd
-    frequencies = torch.linspace(fmin,fmax,nqua)
-    start_freq,end_freq = frequencies[11],frequencies[19]
-    frequencies = torch.linspace(start_freq,end_freq,31)
+    frequencies = torch.linspace(fmin,fmax,nqua,dtype=torch.float64)
+    # # redefine frequency range, only focused on intersted centred region
+    # start_freq,end_freq = frequencies[11],frequencies[19]
+    # frequencies = torch.linspace(start_freq,end_freq,31)
 
     x_min = position[:,0].min()
     x_max = position[:,0].max()
@@ -77,31 +79,34 @@ def data_gen(model_file,line,radius,type_='or'):
     v_z = velocity[:,2]
     co = abundance[:,1]
     vturb = np.sqrt(vturb2)
-     # get grid 128,don't touch!!!
-    # haar = Haar(position, q=9)
-    # nCO_dat   = haar.map_data(co, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    # tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    # vturb_dat = haar.map_data(vturb, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    # v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    # v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    # v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
-    # get grid 32,don't touch!!!
-    # haar = Haar(position, q=7)
-    # nCO_dat   = haar.map_data(co, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
-    # tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
-    # vturb_dat = haar.map_data(vturb, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
-    # v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
-    # v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
-    # v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
-    # input cubes for grid 64, don't touch!!!
-    haar = Haar(position, q=8)#q=8, gens (128,128,128)
-    nCO_dat   = haar.map_data(co, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    vturb_dat = haar.map_data(vturb, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
-    
+    if model_grid == 32:
+        # get grid 32,don't touch!!!
+        haar = Haar(position, q=7)
+        nCO_dat   = haar.map_data(co, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+        tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+        vturb_dat = haar.map_data(vturb, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+        v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+        v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]
+        v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][16:16+32,16:16+32,16:16+32]   
+    elif model_grid == 64:
+         # input cubes for grid 64, don't touch!!!
+        haar = Haar(position, q=8)#q=8, gens (128,128,128)
+        nCO_dat   = haar.map_data(co, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+        tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+        vturb_dat = haar.map_data(vturb, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+        v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+        v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+        v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][32:32+64,32:32+64,32:32+64]
+    elif model_grid == 128:
+        # get grid 128,don't touch!!!
+        haar = Haar(position, q=9)
+        nCO_dat   = haar.map_data(co, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+        tmp_dat   = haar.map_data(temperature, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+        vturb_dat = haar.map_data(vturb, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+        v_x_dat   = haar.map_data(v_x, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+        v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+        v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
+
     # creare model
     p3droslo_model = TensorModel(shape=nCO_dat.shape, sizes=haar.xyz_L)
     p3droslo_model['CO'         ]  = nCO_dat
@@ -112,6 +117,7 @@ def data_gen(model_file,line,radius,type_='or'):
     p3droslo_model['velocity_z']       =        v_z_dat
     # with profile(activities=[ProfilerActivity.CPU], profile_memory=True, record_shapes=True) as prof:
     # intensity along z-axis
+    # time measurement
     img = line.LTE_image_along_last_axis(
     density      = p3droslo_model['CO'         ],
     temperature  = p3droslo_model['temperature'],
@@ -123,6 +129,14 @@ def data_gen(model_file,line,radius,type_='or'):
     # print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
     # Avoid negative values (should probably avoid these earlier...)
     img = torch.abs(img)
+
+    # the physics CMB, physical threshold
+    T_CMB = 2.725
+    CMB = planck(T_CMB,frequencies) 
+    A = torch.ones_like(img)
+    CMB_matrix = CMB * A
+    img[img<CMB_matrix] = CMB_matrix[img < CMB_matrix]
+
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
 
 
@@ -131,7 +145,7 @@ def main(type_):
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
-    # 
+     
     name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/mul_freq_gird64.json'
     with open(name_lists,'r') as file:
         lists = json.load(file)
@@ -155,8 +169,6 @@ def main(type_):
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/faceon_runtime128_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     elif type_ == 'r2':
         datasets = datasets[10903:]
-    elif type_ == 'r3':
-        datasets = datasets[10903*3:]
         
     n_tasks    = len(datasets)
     # tasks_per_rank = int(n_tasks / nproc)
@@ -167,7 +179,7 @@ def main(type_):
     for idx in range(start_index,end_index):
         start = time.time()
         print(f'reading {model_files[idx]}')
-        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line,radius,type_)
+        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line,radius,type_,64)
         end = time.time()
         running_time = end - start
         
