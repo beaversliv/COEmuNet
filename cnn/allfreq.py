@@ -253,7 +253,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
     model = Net3D(freq=7).to(device)
 
-    loss_object = SobelMse(device,alpha=0.8,beta=0.2)
+    # loss_object = SobelMse(device,alpha=0.8,beta=0.2)
+    loss_object = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
     ### start training ###
