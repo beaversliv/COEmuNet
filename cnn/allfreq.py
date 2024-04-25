@@ -134,8 +134,8 @@ class preProcessing:
         # y /= np.max(y)
         # y /= np.median(y)
         # y = np.sqrt(y)
-        y = (y-np.mean(y))/np.std(y)
-        # y = (y - np.min(y)) / (np.max(y) - np.min(y))
+        y = np.log(y+1)
+        y = (y - np.min(y)) / (np.max(y) - np.min(y))
         # reflection_point = y.max() + 1
         # y = reflection_point - y
 
