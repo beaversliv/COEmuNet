@@ -81,7 +81,7 @@ class preProcessing:
     def outliers(self):
         with h5.File(self.path,'r') as sample:
             input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
-            output_ = np.array(sample['output'][:,:,:,12:19], np.float32)# shape(num_samples,64,64,1)
+            output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
         return input_,output_
         # # take logrithm
         # y = output_[:,:,:,15]
@@ -134,8 +134,9 @@ class preProcessing:
         # y /= np.max(y)
         # y /= np.median(y)
         # y = np.sqrt(y)
-        y = np.log(y+1)
-        y = (y - np.min(y)) / (np.max(y) - np.min(y))
+        min_val = np.min(y[y > 0])
+        max_val = np.max(y)
+        y = (y - min_val) / (max_val - min_val)
         # reflection_point = y.max() + 1
         # y = reflection_point - y
 
@@ -252,7 +253,7 @@ def main():
     train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-    model = Net3D(freq=7).to(device)
+    model = Net3D(freq=31).to(device)
 
     # loss_object = SobelMse(device,alpha=0.8,beta=0.2)
     loss_object = nn.L1Loss()
