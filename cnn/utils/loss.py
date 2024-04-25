@@ -214,39 +214,47 @@ def calculate_ssim_batch(target,pred):
     avg_ssim = np.mean(ssim_scores)
     return avg_ssim
 
-class EdgeLoss(nn.Module):
+
+class SobelLoss(nn.Module):
+    '''
+    sobelloss for all freq
+    '''
     def __init__(self):
-        super(EdgeLoss, self).__init__()
-        # Define Sobel edge detection filters
+        super(SobelLoss, self).__init__()
+        # Define Sobel edge detection filters for a 2D convolution
         self.conv_op_x = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
         self.conv_op_y = nn.Conv2d(1, 1, kernel_size=3, padding=1, bias=False)
         
         # Initialize filters for edge detection (Sobel kernels)
-        sobel_kernel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]]).view((1, 1, 3, 3))
-        sobel_kernel_y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]]).view((1, 1, 3, 3))
+        sobel_kernel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]], dtype=torch.float32).view((1, 1, 3, 3))
+        sobel_kernel_y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]], dtype=torch.float32).view((1, 1, 3, 3))
         
         self.conv_op_x.weight.data = sobel_kernel_x
         self.conv_op_y.weight.data = sobel_kernel_y
         
         # Do not update weights during training
-        for param in self.conv_op_x.parameters():
-            param.requires_grad = False
-            
-        for param in self.conv_op_y.parameters():
-            param.requires_grad = False
+        self.conv_op_x.weight.requires_grad = False
+        self.conv_op_y.weight.requires_grad = False
 
     def forward(self, pred, target):
-        # Ensure the input tensor is grayscale
-        if pred.size(1) != 1:
-            pred = pred.mean(dim=1, keepdim=True)
-        if target.size(1) != 1:
-            target = target.mean(dim=1, keepdim=True)
-        
-        # Apply the Sobel filter to the predicted and target images
-        edge_pred_x = self.conv_op_x(pred)
-        edge_pred_y = self.conv_op_y(pred)
-        edge_target_x = self.conv_op_x(target)
-        edge_target_y = self.conv_op_y(target)
+        # Check if input is 4D or 5D and reshape appropriately
+        if pred.dim() == 5:  # Input is 5D
+            # Combine batch and sequence dimensions: (batch, 1, 31, 64, 64) -> (batch*31, 1, 64, 64)
+            batch_size, channels, depth, height, width = pred.shape
+            pred_reshaped = pred.view(batch_size * depth, channels, height, width)
+            target_reshaped = target.view(batch_size * depth, channels, height, width)
+        elif pred.dim() == 4:  # Input is 4D
+            # No need to reshape if input is already 4D: (batch, 1, 64, 64)
+            pred_reshaped = pred
+            target_reshaped = target
+        else:
+            raise ValueError('Input tensor must be 4D or 5D')
+
+        # Apply the Sobel filter to the reshaped predicted and target images
+        edge_pred_x = self.conv_op_x(pred_reshaped)
+        edge_pred_y = self.conv_op_y(pred_reshaped)
+        edge_target_x = self.conv_op_x(target_reshaped)
+        edge_target_y = self.conv_op_y(target_reshaped)
         
         # Calculate loss as the L1 difference between edges
         loss_x = nn.functional.l1_loss(edge_pred_x, edge_target_x)
@@ -254,41 +262,46 @@ class EdgeLoss(nn.Module):
         
         # Combine losses for both x and y edge detections
         loss = loss_x + loss_y
+        
         return loss
 
+
 class SobelMse(nn.Module):
-    def __init__(self,device):
+    def __init__(self,device,alpha,beta):
         super(SobelMse, self).__init__()
-        self.edge_loss = EdgeLoss().to(device)
+        self.edge_loss = SobelLoss().to(device)
+        self.alpha     = alpha
+        self.beta      = beta
     
     def forward(self, pred, target):
         # Calculate the edge loss
         loss_edge = self.edge_loss(pred, target)
         # Calculate the MSE loss
-        loss_mse = nn.functional.mse_loss(pred, target)
+        loss_mse = nn.functional.l1_loss(pred, target)
         # Combine the losses
-        loss_combined = 0.8 * loss_edge + 0.2 * loss_mse
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mse
         return loss_combined
 
+# class RelativeLoss(nn.Module):
+#     def __init__(self,device):
+#         super(RelativeLoss,self).__init__()
+#         self.edge_loss = SobelLoss().to(device)
+    
+#     def forward(self,pred,target):
+#         # Calculate the edge loss
+#         loss_edge = self.edge_loss(pred, target)
+#         m_p = torch.mean(pred,dim=(3,4),keepdim=True)
+#         m_t = torch.mean(target,axis=(3,4),keepdim=True)
 
-class SobelRelative(nn.Module):
-    def __init__(self,device):
-        super(SobelRelative, self).__init__()
-        self.edge_loss = EdgeLoss().to(device)
-    def forward(self,preds,targets):
-        # edge detection 
-        loss_edge = self.edge_loss(preds, targets)
-        # relative loss 1
-        mean_preds = preds.mean(dim=[1, 2, 3],keepdim=True)  # Assuming preds is of shape [batch_size, channels, height, width]
-        mean_targets = targets.mean(dim=[1, 2, 3],keepdim=True)
-        relative_mean = nn.functional.mse_loss(mean_preds, mean_targets)
-        # relative loss 2
-        relativeMean = nn.functional.mse_loss(preds/mean_preds,targets/mean_targets)
+#         r1 = nn.functional.mse_loss(m_p,m_t)
+#         r2 = nn.functional.mse_loss(pred/m_p,target/m_t)
 
-        # Combine the losses
-        alpha = 0.5
-        beta  = 0.25
-        gamma = 0.25
-        loss_combined = alpha*loss_edge + beta*relative_mean + gamma*relativeMean
+#         loss = r1 + r2 + loss_edge
+#         return loss
 
-        return loss_edge,relative_mean,relativeMean,loss_combined
+if __name__ == '__main__':
+    pred = torch.randn((2,1, 64,64))
+    target = torch.randn((2,1, 64,64))
+    rl = SobelMse('cpu',0.2,0.8)
+    rl(pred,target)
+

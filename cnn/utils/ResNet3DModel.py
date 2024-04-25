@@ -184,7 +184,7 @@ class Decoder3D(nn.Module):
 class Net3D(nn.Module):
     def __init__(self,freq=31):
         super(Net3D, self).__init__()
-        self.apply(he_init)
+        # self.apply(he_init)
         self.freq     = freq     # number of frequencies
         self.encoder0 = Encoder(1)
         self.encoder1 = Encoder(1)
