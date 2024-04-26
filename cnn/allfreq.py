@@ -241,8 +241,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
     model = Net3D(freq=31).to(device)
 
-    loss_object = WeightedSoble(device,alpha=0.8,beta=0.2)
+    # loss_object = WeightedSoble(device,alpha=0.8,beta=0.2)
     # loss_object = WeightedNonZeroL1Loss(zero_weight=0.01, non_zero_weight=1.0)
+    loss_object = SobelMse(device,alpha=0.8,beta=0.2)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
     ### start training ###
