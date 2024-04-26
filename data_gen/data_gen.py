@@ -131,11 +131,11 @@ def data_gen(model_file,line,radius,type_='or',model_grid=64):
     img = torch.abs(img)
 
     # the physics CMB, physical threshold
-    T_CMB = 2.725
-    CMB = planck(T_CMB,frequencies) 
-    A = torch.ones_like(img)
-    CMB_matrix = CMB * A
-    img[img<CMB_matrix] = CMB_matrix[img < CMB_matrix]
+    # T_CMB = 2.725
+    # CMB = planck(T_CMB,frequencies) 
+    # A = torch.ones_like(img)
+    # CMB_matrix = CMB * A
+    # img[img<CMB_matrix] = CMB_matrix[img < CMB_matrix]
 
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
 
