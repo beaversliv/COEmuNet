@@ -36,8 +36,8 @@ def data_gen(model_file,line,radius,type_='or',model_grid=64):
     fmax = fcen + fcen*dd
     frequencies = torch.linspace(fmin,fmax,nqua,dtype=torch.float64)
     # # redefine frequency range, only focused on intersted centred region
-    start_freq,end_freq = frequencies[11],frequencies[19]
-    frequencies = torch.linspace(start_freq,end_freq,31)
+    # start_freq,end_freq = frequencies[11],frequencies[19]
+    # frequencies = torch.linspace(start_freq,end_freq,31)
 
     x_min = position[:,0].min()
     x_max = position[:,0].max()
@@ -165,7 +165,7 @@ def main(type_):
         datasets = datasets[:10903]
         
     elif type_ == 'r1':
-        datasets = datasets[:10903]
+        datasets = datasets[:100]
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/faceon_runtime128_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     elif type_ == 'r2':
         datasets = datasets[10903:]
@@ -176,6 +176,7 @@ def main(type_):
     start_index = rank*tasks_per_rank
     end_index = min(rank*tasks_per_rank + tasks_per_rank, n_tasks)
     # print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
+    comm.Barrier()
     for idx in range(start_index,end_index):
         start = time.time()
         print(f'reading {model_files[idx]}')

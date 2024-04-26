@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
     parser.add_argument('--epochs', type = int, default = 100)
-    parser.add_argument('--batch_size', type = int, default = 32)
+    parser.add_argument('--batch_size', type = int, default = 64)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -197,28 +197,9 @@ class Trainer:
 
 def main():
     config = parse_args()
-    # file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl'
-    # file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5' for i in range(5)]
-
-    # train_file_path = file_paths[:4]
-    # test_file_path  = file_paths[4:]
-
-    # custom_transform = CustomTransform(file_statistics)
-    # train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
-    # train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
-
-    # test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
-    # test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
-    # path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/clean_random_1200.hdf5'
-    # with h5.File(path,'r') as file:
-    #     x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
-    #     y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
     with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
         x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
         y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-    # data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/random_12000.hdf5')
-    # x,y = data_gen.get_data()
-
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
 
@@ -235,10 +216,7 @@ def main():
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
     model = Net().to(device) 
-    # model = Net3D().to(device)
-   
-    # resnet34 = ResNetFeatures().to(device)
-    # loss_object = Lossfunction(resnet34,mse_loss_scale = 0.5,freq_loss_scale=0.5, perceptual_loss_scale=0.0)
+
     loss_object = SobelMse(device,alpha=0.8,beta=0.2)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
@@ -258,17 +236,15 @@ def main():
     
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
-    # target = target[:,0,:,:,:]
-    # pred = pred[:,0,:,:,:]
     avg_ssim = calculate_ssim_batch(target,pred)
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/random_singleAll_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/random_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
-    # torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/random_multi__model.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/random_history.pth')
 
 if __name__ == '__main__':
     main()

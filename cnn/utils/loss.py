@@ -264,8 +264,6 @@ class SobelLoss(nn.Module):
         loss = loss_x + loss_y
         
         return loss
-
-
 class SobelMse(nn.Module):
     def __init__(self,device,alpha,beta):
         super(SobelMse, self).__init__()
@@ -277,7 +275,7 @@ class SobelMse(nn.Module):
         # Calculate the edge loss
         loss_edge = self.edge_loss(pred, target)
         # Calculate the MSE loss
-        loss_mse = nn.functional.l1_loss(pred, target)
+        loss_mse = nn.functional.mse_loss(pred, target)
         # Combine the losses
         loss_combined = self.alpha * loss_edge + self.beta * loss_mse
         return loss_combined
@@ -298,10 +296,46 @@ class SobelMse(nn.Module):
 
 #         loss = r1 + r2 + loss_edge
 #         return loss
+class WeightedNonZeroL1Loss(nn.Module):
+    def __init__(self, zero_weight=0.1, non_zero_weight=1.0):
+        super(WeightedNonZeroL1Loss, self).__init__()
+        self.zero_weight = zero_weight  # Weight for zero pixels
+        self.non_zero_weight = non_zero_weight  # Weight for non-zero pixels
+
+    def forward(self, pred, target):
+        # Create a weight tensor based on the target tensor
+        weight_tensor = torch.ones_like(target)  # Start with a uniform weight
+
+        # Assign lower weight to zero pixels,Assign full weight to non-zero pixels
+        weight_tensor[target == 0] = self.zero_weight
+        weight_tensor[target != 0] = self.non_zero_weight
+        element_wise_loss = nn.functional.mse_loss(pred, target, reduction='none')
+
+        # Apply weights to focus on non-zero pixels
+        weighted_loss = element_wise_loss * weight_tensor
+        final_loss = weighted_loss.mean() 
+        
+        return final_loss
+class WeightedSoble(nn.Module):
+    def __init__(self,device,alpha,beta):
+        super(WeightedSoble, self).__init__()
+        self.edge_loss = SobelLoss().to(device)
+        self.weight_loss = WeightedNonZeroL1Loss(zero_weight=0.0001, non_zero_weight=1.0)
+        self.alpha     = alpha
+        self.beta      = beta
+    
+    def forward(self, pred, target):
+        # Calculate the edge loss
+        loss_edge = self.edge_loss(pred, target)
+        # Calculate the MSE loss
+        loss_mse = self.weight_loss(pred, target)
+        # Combine the losses
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mse
+        return loss_combined
+
 
 if __name__ == '__main__':
-    pred = torch.randn((2,1, 64,64))
-    target = torch.randn((2,1, 64,64))
-    rl = SobelMse('cpu',0.2,0.8)
-    rl(pred,target)
-
+    pred = torch.randn((2,1,5,64,64))
+    target = torch.randn((2,1,5,64,64))
+    loss_object = WeightedSoble('cpu',0.8,0.2)
+    loss_object(target,pred)

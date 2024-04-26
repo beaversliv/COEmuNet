@@ -22,7 +22,7 @@ class Trainer:
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
-            latent,output = self.model(data)
+            output = self.model(data)
             loss = self.loss_object(target, output)
             loss.backward()
             self.optimizer.step()
@@ -39,7 +39,7 @@ class Trainer:
         L = []
         for bidx, samples in enumerate(self.test_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
-            latent,pred = self.model(data)
+            pred = self.model(data)
             loss = self.loss_object(target, pred)
             
             P.append(pred.detach().cpu().numpy())
@@ -51,7 +51,7 @@ class Trainer:
     def run(self):
         tr_losses = []
         vl_losses = []
-        for epoch in tqdm(range(self.config['epochs'])):
+        for epoch in tqdm(range(self.config.epochs)):
             epoch_loss = self.train()
             torch.cuda.empty_cache()  # Clear cache after training
             
@@ -60,8 +60,8 @@ class Trainer:
             tr_losses.append(epoch_loss)
             vl_losses.append(val_loss)
             print('Train Epoch: {}/{} Loss: {:.4f}'.format(
-                    epoch, self.config['epochs'], epoch_loss))
+                    epoch, self.config.epochs, epoch_loss))
             print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
-                epoch, self.config["epochs"], val_loss))
+                epoch, self.config.epochs, val_loss))
             
         return tr_losses, vl_losses

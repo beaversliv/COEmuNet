@@ -2,7 +2,7 @@ import warnings
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=RuntimeWarning)
-    from utils.so3_model      import ClsSO3Net
+    from utils.so3_model      import SO3Net
 
 
 import torch
@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 from torch.cuda.amp import GradScaler, autocast
 from thop import profile
 import subprocess
-
+from sklearn.model_selection      import train_test_split 
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 if torch.cuda.is_available():
     # Print the number of available GPUs
@@ -203,41 +203,39 @@ class Trainer:
 
 def main():
     config = parse_args()
-    file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl'
-    file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5' for i in range(5)]
+    # file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl'
+    # file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5' for i in range(5)]
 
-    train_file_path = file_paths[:4]
-    test_file_path  = file_paths[4:]
+    # train_file_path = file_paths[:4]
+    # test_file_path  = file_paths[4:]
 
-    custom_transform = CustomTransform(file_statistics)
-    train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
-    train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
+    # custom_transform = CustomTransform(file_statistics)
+    # train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
+    # train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
 
-    test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
-    test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+    # test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
+    # test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
 
-    # path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_1200rotate.hdf5'
-    # with h5.File(path,'r') as file:
-    #     x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
-    #     y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
-    # # train test split
-    # xtr,xte = x[:1000],x[1000:]
-    # ytr,yte = y[:1000],y[1000:]
+    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_2400_batches.hdf5'
+    with h5.File(path,'r') as file:
+        x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
+        y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
+    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
 
-    # xtr = torch.tensor(xtr,dtype=torch.float32)
-    # ytr = torch.tensor(ytr,dtype=torch.float32)
-    # xte = torch.tensor(xte,dtype=torch.float32)
-    # yte = torch.tensor(yte,dtype=torch.float32)
+    xtr = torch.tensor(xtr,dtype=torch.float32)
+    ytr = torch.tensor(ytr,dtype=torch.float32)
+    xte = torch.tensor(xte,dtype=torch.float32)
+    yte = torch.tensor(yte,dtype=torch.float32)
 
-    # train_dataset = TensorDataset(xtr, ytr)
-    # test_dataset = TensorDataset(xte, yte)
+    train_dataset = TensorDataset(xtr, ytr)
+    test_dataset = TensorDataset(xte, yte)
 
-    ### torch data loader ###
-    # train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-    # test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
+    ## torch data loader ###
+    train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   
-    model = ClsSO3Net().to(device)
+    model = SO3Net().to(device)
    
     # resnet34 = ResNetFeatures().to(device)
     # loss_object = Lossfunction(resnet34,mse_loss_scale = 0.5,freq_loss_scale=0.5, perceptual_loss_scale=0.0)
@@ -258,7 +256,7 @@ def main():
                 config["epochs"], test_loss))
     data = (tr_losses, vl_losses,pred, target)
     
-    with open("/home/dc-su2/physical_informed/cnn/steerable/history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/steerable/random_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
@@ -267,8 +265,8 @@ def main():
     print('SSIM: {:.4f}'.format(avg_ssim))
     # plot pred-targ
     # img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/steerable/img/')
-    history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/steerable/')
-    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/steerable/model.pth')
+    # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/steerable/')
+    # torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/steerable/model.pth')
 
 if __name__ == '__main__':
     main()

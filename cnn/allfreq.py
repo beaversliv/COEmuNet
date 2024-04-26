@@ -5,7 +5,7 @@ from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel  import Net3D,Net
-from utils.loss           import SobelMse,Lossfunction,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch,WeightedNonZeroL1Loss,WeightedSoble
 from utils.plot           import img_plt,history_plt
 
 # helper packages
@@ -82,22 +82,21 @@ class preProcessing:
         with h5.File(self.path,'r') as sample:
             input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
             output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-        return input_,output_
-        # # take logrithm
-        # y = output_[:,:,:,15]
-        # y[y==0] = np.min(y[y!=0])
-        # I = np.log(y)
-        # # difference = max - min
-        # max_values = np.max(I,axis=(1,2))
-        # min_values = np.min(I,axis=(1,2))
-        # diff = max_values - min_values
-        # # find outliers
-        # outlier_idx = np.where(min_values < -50)[0]
+        # take logrithm
+        y = output_[:,:,:,15]
+        y[y==0] = np.min(y[y!=0])
+        I = np.log(y)
+        # difference = max - min
+        max_values = np.max(I,axis=(1,2))
+        min_values = np.min(I,axis=(1,2))
+        diff = max_values - min_values
+        # find outliers
+        outlier_idx = np.where(min_values < -60)[0]
 
-        # # remove outliers
-        # removed_x = np.delete(input_,outlier_idx,axis=0)
-        # removed_y = np.delete(output_,outlier_idx,axis=0)
-        # return removed_x, removed_y
+        # remove outliers
+        removed_x = np.delete(input_,outlier_idx,axis=0)
+        removed_y = np.delete(output_,outlier_idx,axis=0)
+        return removed_x, removed_y
 
     def get_data(self):
         x,y = self.outliers()
@@ -121,27 +120,14 @@ class preProcessing:
         y[y==0] = np.min(y[y!=0])
         y = np.log(y)
         # set threshold
-        # y[y<=-60] = -60
-        # q1 = np.percentile(y,25)
-        # q3 = np.percentile(y,75)
-        # IQR = q3 - q1
-        # lower_whisker = q1 - 1.5 * IQR
-        # # use lower_whisker as threshold
-        # y[y<=lower_whisker] = lower_whisker
+        y[y<=-60] = -60
         # pre-processing: reflect and take base 10 logrithmn
         y -= np.min(y)
-        # y = y**(1/3)
-        # y /= np.max(y)
-        # y /= np.median(y)
-        # y = np.sqrt(y)
-        min_val = np.min(y[y > 0])
-        max_val = np.max(y)
-        y = (y - min_val) / (max_val - min_val)
-        # reflection_point = y.max() + 1
-        # y = reflection_point - y
-
-        # y = np.log10(y)
-        # print('>>>reflection point:', reflection_point)
+        reflection_point = y.max() + 1
+        y = reflection_point - y
+        y = np.log10(y)
+        
+        # y = (y - np.min(y))/ (np.max(y) - np.min(y))
         y = np.transpose(y,(0,3,1,2))
         y = y[:,np.newaxis,:,:,:]
         return np.transpose(x_t, (1, 0, 2, 3, 4)), y
@@ -235,7 +221,7 @@ def main():
     # with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
     #     x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
     #     y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/CMB_1200.hdf5')
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_12000.hdf5')
     x,y = data_gen.get_data()
 
     # train test split
@@ -255,8 +241,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
     model = Net3D(freq=31).to(device)
 
-    # loss_object = SobelMse(device,alpha=0.8,beta=0.2)
-    loss_object = nn.L1Loss()
+    loss_object = WeightedSoble(device,alpha=0.8,beta=0.2)
+    # loss_object = WeightedNonZeroL1Loss(zero_weight=0.01, non_zero_weight=1.0)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
     ### start training ###
@@ -281,11 +267,11 @@ def main():
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_cmb7_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_M_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
-    # torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/random_multi__model.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_multi_model.pth')
 
 if __name__ == '__main__':
     main()

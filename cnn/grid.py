@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
-from utils.model          import Net
+from utils.ResNet3DModel  import Net
 from utils.trainclass     import Trainer
 from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
@@ -21,7 +21,7 @@ import pickle
 import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
-print('original face-on view with grid 32')
+print('random view with grid 128')
 # Check if a GPU is available
 if torch.cuda.is_available():
     # Print the number of available GPUs
@@ -46,6 +46,7 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
+    parser.add_argument('--model_grid',type=int,default= 128,help='grid of hydro model:[32,64,128]')
     parser.add_argument('--epochs', type = int, default = 100)
     parser.add_argument('--batch_size', type = int, default = 64)
     parser.add_argument('--lr', type = float, default = 1e-3)
@@ -59,6 +60,7 @@ def parse_args():
             ('model_name', args.model_name),
             
             ('dataset', args.dataset),
+            ('model_grid',args.model_grid),
             ('epochs', args.epochs),
             ('batch_size', args.batch_size),
             ('lr', args.lr),
@@ -69,21 +71,18 @@ def parse_args():
 
 def main():
     config = parse_args()
-    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/grid32/faceon/clean_batches.hdf5'
-    with h5.File(path,'r') as file:
-        x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
-        y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
-    # train test split
-    xtr,xte = x[:9000],x[9000:]
-    ytr,yte = y[:9000],y[9000:]
-
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
-
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
+    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/grid128/rotation/clean_batches.hdf5'
+    with h5.File(path, 'r') as file:
+        x = np.array(file['input'], np.float32)
+        y = np.array(file['output'], np.float32)
+    # indices = np.arange(x.shape[0])
+    # np.random.shuffle(indices)
+    # x_shuffled = x[indices]
+    # y_shuffled = y[indices]
+    xtr, xte = x[:900], x[900:]
+    ytr, yte = y[:900], y[900:]
+    train_dataset = TensorDataset(torch.tensor(xtr, dtype=torch.float32), torch.tensor(ytr, dtype=torch.float32))
+    test_dataset = TensorDataset(torch.tensor(xte, dtype=torch.float32), torch.tensor(yte, dtype=torch.float32))
 
     ## torch data loader ###
     train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
@@ -91,7 +90,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     ### set a model ###
-    model = Net().to(device)
+    model = Net(config['model_grid']).to(device)
     
     # resnet34 = ResNetFeatures().to(device)
     # loss_object = Lossfunction(resnet34,mse_loss_scale = 0.8,freq_loss_scale=0.2, perceptual_loss_scale=0.0)
@@ -119,11 +118,11 @@ def main():
     print('SSIM: {:.4f}'.format(avg_ssim))
 
     # plot and save history
-    img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/grid32/img/')
-    history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/grid32/')
-    with open("/home/dc-su2/physical_informed/cnn/grid32/history.pkl", "wb") as pickle_file:
+    img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/grid128/img/')
+    history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/grid128/')
+    with open("/home/dc-su2/physical_informed/cnn/grid128/rotation_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
-    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/grid32/model.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/grid128/rotation_model.pth')
 
 
 if __name__ == '__main__':

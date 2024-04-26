@@ -16,7 +16,7 @@ def load_dataset_names(json_file_path):
     with open(json_file_path, 'r') as file:
         lists = json.load(file)
     datasets = lists['datasets']   
-    random.shuffle(datasets)
+    # random.shuffle(datasets)
     return datasets
 
 def distribute_datasets(datasets, rank, nproc, segment_size=12000):
@@ -68,11 +68,11 @@ if __name__ == "__main__":
     # name_lists = '/home/dc-su2/physical_informed/data_gen/datasets.json'
     name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/mul_freq_gird64.json'
     datasets = load_dataset_names(name_lists)
-    process_file_list = distribute_datasets(datasets, rank, nproc,len(datasets)//nproc)
+    process_file_list = distribute_datasets(datasets[:100], rank, nproc,100)
 
     X, Y, FREQS = process_datasets(process_file_list)
     print(Y.shape)
-    output_file = f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/CMB_{rank}.hdf5'
+    output_file = f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/cmb_test100.hdf5'
     save_processed_data(output_file, X, Y, FREQS)
     
     

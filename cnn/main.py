@@ -1,6 +1,6 @@
-
-
-
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
 
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
@@ -10,7 +10,7 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=RuntimeWarning)
     from utils.so3_model      import SO3Net
 from utils.trainclass     import Trainer
-from data                 import load_face_on_view_grid64, load_random_view_grid64_12000, load_face_on_view_grid32, load_random_view_grid32,load_face_on_view_grid128,load_random_on_view_grid128
+from data                 import load_face_on_view_grid64, load_random_view_grid64, load_face_on_view_grid32, load_random_view_grid32,load_face_on_view_grid128,load_random_view_grid128
 from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 from utils.config         import faceon_args
@@ -36,7 +36,7 @@ def _init_():
     if not os.path.exists(f'checkpoints/{args.exp_name}/img/'):
         os.makedirs(f'checkpoints/{args.exp_name}/img/')
     os.system('cp main.py checkpoints'+'/'+args.exp_name+'/'+'main.py.backup')
-def set_seed(seed=0):
+def set_seed(seed=1234):
     np.random.seed(seed)
     torch.manual_seed(seed) 
     torch.cuda.manual_seed(seed)
@@ -45,7 +45,7 @@ def main():
     parser = faceon_args()
     args = parser.parse_args()
 
-    _init_()
+    # _init_()
     set_seed(args.seed)
     
     ### set dataset ###
@@ -65,12 +65,11 @@ def main():
         elif args.dataset == 'random':
             train_dataset, test_dataset = load_random_view_grid128()
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,num_workers=2)
-    vali_dataloader = DataLoader(vali_dataset, batch_size=args.batch_size, shuffle=True,num_workers=2)
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ### set a model ###
     if args.model=='3dResNet':
-        model = Net().to(device)
+        model = Net(args.model_grid).to(device)
     elif args.model == 'so3':
         model = ClsSO3Net().to(device)
     ### set loss function ###
@@ -80,7 +79,7 @@ def main():
 
     ### start training ###
     start = time.time()
-    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, args, device,args.model_grid)
+    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, args, device)
     tr_losses, vl_losses = trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
@@ -98,11 +97,11 @@ def main():
     print('SSIM: {:.4f}'.format(avg_ssim))
 
     # plot and save history
-    img_plt(target,pred,path=f'/checkpoints/{args.exp_name}/img/')
-    history_plt(tr_losses,vl_losses,path=args.exp_name)
-    with open(f'{args.exp_name}_history.pkl', "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
-    torch.save(model.state_dict(),f'{args.exp_name}_model.pth')
+    # img_plt(target,pred,path=f'/checkpoints/{args.exp_name}/img/')
+    # history_plt(tr_losses,vl_losses,path=args.exp_name)
+    # with open(f'{args.exp_name}_history.pkl', "wb") as pickle_file:
+    #     pickle.dump(data, pickle_file)
+    # torch.save(model.state_dict(),f'{args.exp_name}_model.pth')
 
 if __name__ == "__main__":
     main()
