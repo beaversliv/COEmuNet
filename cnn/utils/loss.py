@@ -316,26 +316,46 @@ class WeightedNonZeroL1Loss(nn.Module):
         final_loss = weighted_loss.mean() 
         
         return final_loss
+
+def l1_penalty(model):
+    l1_loss = 0
+    for param in model.parameters():
+        if param.requires_grad:  # Ensure the parameter is trainable
+            l1_loss += torch.sum(torch.abs(param))  # L1 penalty for this parameter
+    return l1_loss
+
+class MaskMseLoss(nn.Module):
+    def __init__(self):
+        super(MaskMseLoss, self).__init__()
+    def forward(self,pre,target):
+        mask = (target != 0).float()  # Binary mask: 1 for non-zero, 0 for zero
+        loss = nn.functional.mse_loss(pre, target, reduction='none')
+        masked_loss = loss * mask  
+        final_loss = masked_loss.sum() / mask.sum()
+        return final_loss
 class WeightedSoble(nn.Module):
-    def __init__(self,device,alpha,beta):
+    def __init__(self,device,alpha,beta,epsi=0.01):
         super(WeightedSoble, self).__init__()
         self.edge_loss = SobelLoss().to(device)
-        self.weight_loss = WeightedNonZeroL1Loss(zero_weight=0.0001, non_zero_weight=1.0)
+        # self.weight_loss = WeightedNonZeroL1Loss(zero_weight=0.0001, non_zero_weight=1.0)
+        self.weight_loss = MaskMseLoss()
         self.alpha     = alpha
         self.beta      = beta
+        self.epsi = epsi
     
     def forward(self, pred, target):
         # Calculate the edge loss
         loss_edge = self.edge_loss(pred, target)
         # Calculate the MSE loss
         loss_mse = self.weight_loss(pred, target)
+        loss_reg = l1_penalty(self)
         # Combine the losses
-        loss_combined = self.alpha * loss_edge + self.beta * loss_mse
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mse + self.epsi * loss_reg
         return loss_combined
 
 
 if __name__ == '__main__':
     pred = torch.randn((2,1,5,64,64))
     target = torch.randn((2,1,5,64,64))
-    loss_object = WeightedSoble('cpu',0.8,0.2)
+    loss_object = WeightedSoble('cpu',0.8,0.2,0)
     loss_object(target,pred)
