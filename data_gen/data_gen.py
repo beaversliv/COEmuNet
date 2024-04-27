@@ -165,7 +165,7 @@ def main(type_):
         datasets = datasets[:10903]
         
     elif type_ == 'r1':
-        datasets = datasets[:100]
+        datasets = datasets[:10903]
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/faceon_runtime128_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     elif type_ == 'r2':
         datasets = datasets[10903:]
