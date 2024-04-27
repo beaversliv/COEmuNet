@@ -126,6 +126,7 @@ class preProcessing:
         y -= np.min(y)
         reflection_point = y.max() + 1
         y = reflection_point - y
+        print('reflection point:',refelction_point)
         y = np.log10(y)
         
         # y = (y - np.min(y))/ (np.max(y) - np.min(y))
@@ -269,11 +270,11 @@ def main():
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_multi7_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_Multi7_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
-    # torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_multi_model.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_Multi7_model.pth')
 
 if __name__ == '__main__':
     main()
