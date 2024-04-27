@@ -82,22 +82,21 @@ class preProcessing:
         with h5.File(self.path,'r') as sample:
             input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
             output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-        return input_, output_
-        # # take logrithm
-        # y = output_[:,:,:,15]
-        # y[y==0] = np.min(y[y!=0])
-        # I = np.log(y)
-        # # difference = max - min
-        # max_values = np.max(I,axis=(1,2))
-        # min_values = np.min(I,axis=(1,2))
-        # diff = max_values - min_values
-        # # find outliers
-        # outlier_idx = np.where(min_values < -60)[0]
+        # take logrithm
+        y = output_[:,:,:,15]
+        y[y==0] = np.min(y[y!=0])
+        I = np.log(y)
+        # difference = max - min
+        max_values = np.max(I,axis=(1,2))
+        min_values = np.min(I,axis=(1,2))
+        diff = max_values - min_values
+        # find outliers
+        outlier_idx = np.where(min_values < -60)[0]
 
-        # # remove outliers
-        # removed_x = np.delete(input_,outlier_idx,axis=0)
-        # removed_y = np.delete(output_,outlier_idx,axis=0)
-        # return removed_x, removed_y
+        # remove outliers
+        removed_x = np.delete(input_,outlier_idx,axis=0)
+        removed_y = np.delete(output_,outlier_idx,axis=0)
+        return removed_x, removed_y
 
     def get_data(self):
         x,y = self.outliers()
@@ -119,16 +118,15 @@ class preProcessing:
             x_t[idx] = x_t[idx] - np.min(x_t[idx])
             x_t[idx] = x_t[idx]/np.median(x_t[idx])
         y[y==0] = np.min(y[y!=0])
+        y = y[:,:,:,12:19]
         y = np.log(y)
-        y -= np.min(y)
-        y /= np.max(y)
         # set threshold
-        # y[y<=-60] = -60
-        # # pre-processing: reflect and take base 10 logrithmn
-        # y -= np.min(y)
-        # reflection_point = y.max() + 1
-        # y = reflection_point - y
-        # y = np.log10(y)
+        y[y<=-60] = -60
+        # pre-processing: reflect and take base 10 logrithmn
+        y -= np.min(y)
+        reflection_point = y.max() + 1
+        y = reflection_point - y
+        y = np.log10(y)
         
         # y = (y - np.min(y))/ (np.max(y) - np.min(y))
         y = np.transpose(y,(0,3,1,2))
@@ -224,7 +222,7 @@ def main():
     # with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
     #     x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
     #     y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/CMB_1200.hdf5')
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_12000.hdf5')
     x,y = data_gen.get_data()
 
     # train test split
@@ -242,7 +240,7 @@ def main():
     train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-    model = Net3D(freq=31).to(device)
+    model = Net3D(freq=7).to(device)
 
     # loss_object = WeightedSoble(device,alpha=0.8,beta=0.2)
     # loss_object = WeightedNonZeroL1Loss(zero_weight=0.01, non_zero_weight=1.0)
@@ -271,7 +269,7 @@ def main():
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_cmb_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_multi7_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
