@@ -20,11 +20,69 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=RuntimeWarning)
     from utils.so3_model      import SO3Net
 
+class preProcessing:
+    def __init__(self,path):
+        self.path = path
+
+    def outliers(self):
+        with h5.File(self.path,'r') as sample:
+            input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
+            output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
+        # take logrithm
+        y = output_[:,:,:,15]
+        y[y==0] = np.min(y[y!=0])
+        I = np.log(y)
+        # difference = max - min
+        max_values = np.max(I,axis=(1,2))
+        min_values = np.min(I,axis=(1,2))
+        diff = max_values - min_values
+        # find outliers
+        outlier_idx = np.where(min_values < -60)[0]
+
+        # remove outliers
+        removed_x = np.delete(input_,outlier_idx,axis=0)
+        removed_y = np.delete(output_,outlier_idx,axis=0)
+        return removed_x, removed_y
+
+    def get_data(self):
+        x,y = self.outliers()
+        meta = {}
+
+        x_t = np.transpose(x, (1, 0, 2, 3, 4))
+        for idx in [0]:
+            meta[idx] = {}
+            meta[idx]['mean'] = x_t[idx].mean()
+            meta[idx]['std'] = x_t[idx].std()
+            x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
+        
+        for idx in [1, 2]:
+            meta[idx] = {}
+            meta[idx]['min'] = np.min(x_t[idx])
+            meta[idx]['median'] = np.median(x_t[idx])
+            x_t[idx] = np.log(x_t[idx])
+            
+            x_t[idx] = x_t[idx] - np.min(x_t[idx])
+            x_t[idx] = x_t[idx]/np.median(x_t[idx])
+        y[y==0] = np.min(y[y!=0])
+        # y = y[:,:,:,12:19]
+        y = np.log(y)
+        # set threshold
+        y[y<=-60] = -60
+        # pre-processing: reflect and take base 10 logrithmn
+        y -= np.min(y)
+        reflection_point = y.max() + 1
+        y = reflection_point - y
+        y = np.log10(y)
+        
+        # y = (y - np.min(y))/ (np.max(y) - np.min(y))
+        y = np.transpose(y,(0,3,1,2))
+        y = y[:,np.newaxis,:,:,:]
+        return np.transpose(x_t, (1, 0, 2, 3, 4)), y
 
 def time_eval(log_file:str,test_dataloader,device,model_path:str,grid:int):
     logging.basicConfig(filename=log_file, level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-    model = Net(grid).to(device)
+    model = Net3D(freq=31).to(device)
     model.load_state_dict(torch.load(model_path,map_location=device))
     model.eval()
 
@@ -54,10 +112,11 @@ def main():
     # test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
     # test_dataloader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-    path = '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid32/faceon/clean_batches.hdf5'
-    with h5.File(path,'r') as file:
-        x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
-        y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_1200.hdf5')
+    x,y = data_gen.get_data()
+    # with h5.File(path,'r') as file:
+    #     x = np.array(file['input'],np.float32) # shape(1192,3,64,64,64)
+    #     y = np.array(file['output'],np.float32) # shape(1192,1,64,64,64)
 
     # train test split
     xte = x[-1090:]
@@ -70,12 +129,12 @@ def main():
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid32/model.pth'
-    time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid32/faceon_runtime32.log',
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_Multi_model.pth'
+    time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/freq31_runtime64.log',
           test_dataloader=test_dataloader,
           device=device,
           model_path=model_dic,
-          grid=32)
+          grid=64)
 
 if __name__ == '__main__':
     main()
