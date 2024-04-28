@@ -4,10 +4,8 @@ import gc
 import pandas             as pd
 import numpy              as np
 import h5py               as h5
-import math
-import time
-import logging
-import sys
+
+
 from p3droslo.model       import TensorModel
 from p3droslo.lines       import Line
 from p3droslo.haar        import Haar
@@ -16,11 +14,17 @@ from p3droslo.utils       import planck  # CMB, big bang background
 from mpi4py               import MPI
 from astropy              import constants
 from torch.profiler       import profile, record_function, ProfilerActivity
-import magritte.core      as magritte
-from astropy             import constants
+
+from astropy              import constants
 from scipy.spatial.transform import Rotation
-from tools               import model_find
-def data_gen(model_file,line,radius,type_='or',model_grid=64):
+from tools                import model_find
+import argparse
+import time
+import logging
+import sys
+import math 
+
+def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
     with h5.File(model_file,'r') as f:
         position = np.array(f['geometry/points/position'])
         velocity = np.array(f['geometry/points/velocity'])* constants.c.si.value
@@ -29,12 +33,15 @@ def data_gen(model_file,line,radius,type_='or',model_grid=64):
         vturb2      = np.array(f['thermodynamics/turbulence/vturb2'])
     
     fcen = line.frequency
-    vpix = 300   # velocity pixel size [m/s] 
-    nqua = 31
-    dd   = vpix * (nqua-1)/2 / constants.c.si.value
-    fmin = fcen - fcen*dd
-    fmax = fcen + fcen*dd
-    frequencies = torch.linspace(fmin,fmax,nqua,dtype=torch.float64)
+    if mulfreq:
+        vpix = 300   # velocity pixel size [m/s] 
+        nqua = 31
+        dd   = vpix * (nqua-1)/2 / constants.c.si.value
+        fmin = fcen - fcen*dd
+        fmax = fcen + fcen*dd
+        frequencies = torch.linspace(fmin,fmax,nqua,dtype=torch.float64)
+    else:
+        frequencies = torch.tensor([fcen],dtype=torch.float64)
     # # redefine frequency range, only focused on intersted centred region
     # start_freq,end_freq = frequencies[11],frequencies[19]
     # frequencies = torch.linspace(start_freq,end_freq,31)
@@ -118,6 +125,8 @@ def data_gen(model_file,line,radius,type_='or',model_grid=64):
     # with profile(activities=[ProfilerActivity.CPU], profile_memory=True, record_shapes=True) as prof:
     # intensity along z-axis
     # time measurement
+    logging.basicConfig(filename=f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/numerical_runtime2/single_ro_runtime{model_grid}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    start = time.time()
     img = line.LTE_image_along_last_axis(
     density      = p3droslo_model['CO'         ],
     temperature  = p3droslo_model['temperature'],
@@ -126,10 +135,13 @@ def data_gen(model_file,line,radius,type_='or',model_grid=64):
     frequencies  = frequencies,
     dx           = p3droslo_model.dx(3-1)
     )
+    end = time.time()
+    running_time = end - start
+    logging.info(f'Running time: {running_time:.6} seconds')
     # print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
     # Avoid negative values (should probably avoid these earlier...)
     img = torch.abs(img)
-
+    
     # the physics CMB, physical threshold
     # T_CMB = 2.725
     # CMB = planck(T_CMB,frequencies) 
@@ -139,9 +151,17 @@ def data_gen(model_file,line,radius,type_='or',model_grid=64):
 
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="A script with command-line arguments")
+    parser.add_argument('--type', type = str, default = "Specify the type (default: 'or')")
+    parser.add_argument('--model_grid', type = int, default = 64)
+    parser.add_argument('--mulfreq', type = bool, default = False,help="Flag to indicate if multiple frequencies should be used (default: False)")
 
-def main(type_):
-    # setup logging
+    args = parser.parse_args()
+    return args
+
+def main():
+    args = parse_args()
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
@@ -161,13 +181,13 @@ def main(type_):
 
     model_files = model_find()
 
-    if type_ == 'or':
+    if args.type == 'or':
         datasets = datasets[:10903]
         
-    elif type_ == 'r1':
-        datasets = datasets[:10903]
-        # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/faceon_runtime128_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    elif type_ == 'r2':
+    elif args.type == 'r1':
+        datasets = datasets[:1090]
+        # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/_runtime{model_grid}_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    elif args.type == 'r2':
         datasets = datasets[10903:]
         
     n_tasks    = len(datasets)
@@ -178,26 +198,16 @@ def main(type_):
     # print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
     comm.Barrier()
     for idx in range(start_index,end_index):
-        start = time.time()
         print(f'reading {model_files[idx]}')
-        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line,radius,type_,64)
-        end = time.time()
-        running_time = end - start
-        
-        # logging.info(f'Running time: {running_time:.5} seconds')
-        path = datasets[idx]
-        print(f'writing {path}\n')
-        with h5.File(path, "w") as file:
-            file.create_dataset('frequencies',  data=frequencies)
-            file.create_dataset("CO",           data=nCO_dat)
-            file.create_dataset("temperature",  data=tmp_dat)
-            file.create_dataset("velocity_z",   data=v_z_dat)
-            file.create_dataset('I',            data=img)
+        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line=line,radius=radius,type_=args.type,model_grid=args.model_grid)
+        # path = datasets[idx]
+        # print(f'writing {path}\n')
+        # with h5.File(path, "w") as file:
+        #     file.create_dataset('frequencies',  data=frequencies)
+        #     file.create_dataset("CO",           data=nCO_dat)
+        #     file.create_dataset("temperature",  data=tmp_dat)
+        #     file.create_dataset("velocity_z",   data=v_z_dat)
+        #     file.create_dataset('I',            data=img)
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print('Usage: python <your_script.py> <type>')
-        sys.exit(1)
-    type_ = sys.argv[1]
-    
-    main(type_)
+    main()
