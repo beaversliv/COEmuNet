@@ -296,23 +296,17 @@ class SobelMse(nn.Module):
 
 #         loss = r1 + r2 + loss_edge
 #         return loss
-class WeightedNonZeroL1Loss(nn.Module):
-    def __init__(self, zero_weight=0.1, non_zero_weight=1.0):
-        super(WeightedNonZeroL1Loss, self).__init__()
+class WeightedNonZeroMSELoss(nn.Module):
+    def __init__(self, zero_weight=1, non_zero_weight=10):
+        super(WeightedNonZeroMSELoss, self).__init__()
         self.zero_weight = zero_weight  # Weight for zero pixels
         self.non_zero_weight = non_zero_weight  # Weight for non-zero pixels
 
     def forward(self, pred, target):
-        # Create a weight tensor based on the target tensor
-        weight_tensor = torch.ones_like(target)  # Start with a uniform weight
-
-        # Assign lower weight to zero pixels,Assign full weight to non-zero pixels
-        weight_tensor[target == 0] = self.zero_weight
-        weight_tensor[target != 0] = self.non_zero_weight
-        element_wise_loss = nn.functional.mse_loss(pred, target, reduction='none')
-
-        # Apply weights to focus on non-zero pixels
-        weighted_loss = element_wise_loss * weight_tensor
+        non_minimum_mask = (target != target.min())
+        weights = torch.where(non_minimum_mask, self.non_zero_weight*torch.ones_like(target), self.zero_weight*torch.ones_like(target))  
+        element_wise_loss = nn.functional.mse_loss(target, pred, reduction='none')
+        weighted_loss = element_wise_loss * weights
         final_loss = weighted_loss.mean() 
         
         return final_loss
