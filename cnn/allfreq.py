@@ -5,7 +5,7 @@ from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel  import Net3D,Net
-from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch,WeightedNonZeroMSELoss,WeightedSoble
+from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch,WeightedNonZeroL1Loss,WeightedSoble
 from utils.plot           import img_plt,history_plt
 
 # helper packages
@@ -85,22 +85,22 @@ class preProcessing:
         with h5.File(self.path,'r') as sample:
             input_ = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
             output_ = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-        return input_, output_
+        # return input_, output_
         # take logrithm
-        # y = output_[:,:,:,15]
-        # y[y==0] = np.min(y[y!=0])
-        # I = np.log(y)
-        # # difference = max - min
-        # max_values = np.max(I,axis=(1,2))
-        # min_values = np.min(I,axis=(1,2))
-        # diff = max_values - min_values
-        # # find outliers
-        # outlier_idx = np.where(min_values < -60)[0]
+        y = output_[:,:,:,15]
+        y[y==0] = np.min(y[y!=0])
+        I = np.log(y)
+        # difference = max - min
+        max_values = np.max(I,axis=(1,2))
+        min_values = np.min(I,axis=(1,2))
+        diff = max_values - min_values
+        # find outliers
+        outlier_idx = np.where(min_values < -60)[0]
 
-        # # remove outliers
-        # removed_x = np.delete(input_,outlier_idx,axis=0)
-        # removed_y = np.delete(output_,outlier_idx,axis=0)
-        # return removed_x, removed_y
+        # remove outliers
+        removed_x = np.delete(input_,outlier_idx,axis=0)
+        removed_y = np.delete(output_,outlier_idx,axis=0)
+        return removed_x, removed_y
 
     def get_data(self):
         x,y = self.outliers()
@@ -124,18 +124,17 @@ class preProcessing:
         y[y==0] = np.min(y[y!=0])
         segment = self.num_freqs//2
         y = y[:,:,:,15-segment:15+segment+1]
-        y = np.log10(y)
+        y = np.log(y)
         # set threshold
-        # y[y<=-40] = -40
+        y[y<=-40] = -40
         # pre-processing: reflect and take base 10 logrithmn
-        # y -= np.min(y)
-        # y /= np.median(y)
-        # y = np.log(y+1)
+        y -= np.min(y)
         reflection_point = y.max() + 1
         y = reflection_point - y
         print('reflection point:',reflection_point)
-        # y = np.log10(y)
-        y = (y-np.min(y))/(np.max(y) - np.min(y))
+        y = np.log10(y)
+        
+        y = (y - np.min(y))/ (np.max(y) - np.min(y))
         y = np.transpose(y,(0,3,1,2))
         y = y[:,np.newaxis,:,:,:]
         return np.transpose(x_t, (1, 0, 2, 3, 4)), y
@@ -229,7 +228,7 @@ def main():
     # with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
     #     x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
     #     y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/CMB_1200.hdf5',config['num_freqs'])
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_12000.hdf5',config['num_freqs'])
     x,y = data_gen.get_data()
 
     # train test split
@@ -250,7 +249,8 @@ def main():
     model = Net3D(config['num_freqs']).to(device)
 
     # loss_object = WeightedSoble(device,alpha=0.8,beta=0.2)
-    # loss_object = WeightedNonZeroMSELoss(zero_weight=0.1, non_zero_weight=10)
+    # loss_object = WeightedNonZeroMSELoss(zero_weight=1, non_zero_weight=10)
+    # loss_object = nn.BCELoss()
     loss_object = SobelMse(device,alpha=0.8,beta=0.2)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
@@ -276,8 +276,8 @@ def main():
 
     print('SSIM: {:.5f}'.format(avg_ssim))
     
-    # with open(f"/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_CMB{config['num_freqs']}_Reflect_history.pkl", "wb") as pickle_file:
-    #     pickle.dump(data, pickle_file)
+    with open(f"/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_CMB{config['num_freqs']}_Reflect_history.pkl", "wb") as pickle_file:
+        pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
     # torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_Multi7_model.pth')

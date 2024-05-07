@@ -38,7 +38,7 @@ class FocalFrequencyLoss(nn.Module):
     def tensor2freq(self, x):
         # crop image patches
         patch_factor = self.patch_factor
-        _, _, h, w = x.shape
+        _, _,_,h, w = x.shape
         assert h % patch_factor == 0 and w % patch_factor == 0, (
             'Patch factor should be divisible by image height and width')
         patch_list = []
@@ -46,10 +46,10 @@ class FocalFrequencyLoss(nn.Module):
         patch_w = w // patch_factor
         for i in range(patch_factor):
             for j in range(patch_factor):
-                patch_list.append(x[:, :, i * patch_h:(i + 1) * patch_h, j * patch_w:(j + 1) * patch_w])
-
+                patch_list.append(x[:, :, :, i * patch_h:(i + 1) * patch_h, j * patch_w:(j + 1) * patch_w])
+        
         # stack to patch tensor
-        y = torch.stack(patch_list, 1)
+        y = torch.stack(patch_list, dim=2)
 
         # perform 2D DFT (real-to-complex, orthonormalization)
         if IS_HIGH_VERSION:
@@ -66,9 +66,9 @@ class FocalFrequencyLoss(nn.Module):
             weight_matrix = matrix.detach()
         else:
             # if the matrix is calculated online: continuous, dynamic, based on current Euclidean distance
-            matrix_tmp = (recon_freq - real_freq) ** 2
-            matrix_tmp = torch.sqrt(matrix_tmp[..., 0] + matrix_tmp[..., 1]) ** self.alpha
-
+            # matrix_tmp = (recon_freq - real_freq) ** 2
+            # matrix_tmp = torch.sqrt(matrix_tmp[..., 0] + matrix_tmp[..., 1]) ** self.alpha
+            matrix_tmp = (recon_freq - real_freq).pow(2).sum(-1).sqrt() ** self.alpha
             # whether to adjust the spectrum weight matrix by logarithm
             if self.log_matrix:
                 matrix_tmp = torch.log(matrix_tmp + 1.0)
@@ -77,23 +77,29 @@ class FocalFrequencyLoss(nn.Module):
             if self.batch_matrix:
                 matrix_tmp = matrix_tmp / matrix_tmp.max()
             else:
-                matrix_tmp = matrix_tmp / matrix_tmp.max(-1).values.max(-1).values[:, :, :, None, None]
-
+                matrix_tmp = matrix_tmp / matrix_tmp.amax(dim=(-3, -2, -1), keepdim=True)
+                # matrix_tmp = matrix_tmp / matrix_tmp.max(-1).values.max(-1).values[:, :, :, None, None]
             matrix_tmp[torch.isnan(matrix_tmp)] = 0.0
-            matrix_tmp = torch.clamp(matrix_tmp, min=0.0, max=1.0)
-            weight_matrix = matrix_tmp.clone().detach()
+            weight_matrix = torch.clamp(matrix_tmp, 0.0, 1.0).detach()
 
-        assert weight_matrix.min().item() >= 0 and weight_matrix.max().item() <= 1, (
-            'The values of spectrum weight matrix should be in the range [0, 1], '
-            'but got Min: %.10f Max: %.10f' % (weight_matrix.min().item(), weight_matrix.max().item()))
-
-        # frequency distance using (squared) Euclidean distance
-        tmp = (recon_freq - real_freq) ** 2
-        freq_distance = tmp[..., 0] + tmp[..., 1]
-
-        # dynamic spectrum weighting (Hadamard product)
+        freq_distance = (recon_freq - real_freq).pow(2).sum(-1)
         loss = weight_matrix * freq_distance
         return torch.mean(loss)
+        #     matrix_tmp[torch.isnan(matrix_tmp)] = 0.0
+        #     matrix_tmp = torch.clamp(matrix_tmp, min=0.0, max=1.0)
+        #     weight_matrix = matrix_tmp.clone().detach()
+
+        # assert weight_matrix.min().item() >= 0 and weight_matrix.max().item() <= 1, (
+        #     'The values of spectrum weight matrix should be in the range [0, 1], '
+        #     'but got Min: %.10f Max: %.10f' % (weight_matrix.min().item(), weight_matrix.max().item()))
+
+        # # frequency distance using (squared) Euclidean distance
+        # tmp = (recon_freq - real_freq) ** 2
+        # freq_distance = tmp[..., 0] + tmp[..., 1]
+
+        # # dynamic spectrum weighting (Hadamard product)
+        # loss = weight_matrix * freq_distance
+        # return torch.mean(loss)
 
     def forward(self, pred, target, matrix=None, **kwargs):
         """Forward function to calculate focal frequency loss.
@@ -280,32 +286,38 @@ class SobelMse(nn.Module):
         loss_combined = self.alpha * loss_edge + self.beta * loss_mse
         return loss_combined
 
-# class RelativeLoss(nn.Module):
-#     def __init__(self,device):
-#         super(RelativeLoss,self).__init__()
-#         self.edge_loss = SobelLoss().to(device)
-    
-#     def forward(self,pred,target):
-#         # Calculate the edge loss
-#         loss_edge = self.edge_loss(pred, target)
-#         m_p = torch.mean(pred,dim=(3,4),keepdim=True)
-#         m_t = torch.mean(target,axis=(3,4),keepdim=True)
+class RelativeLoss(nn.Module):
+    def __init__(self):
+        super(RelativeLoss, self).__init__()
 
-#         r1 = nn.functional.mse_loss(m_p,m_t)
-#         r2 = nn.functional.mse_loss(pred/m_p,target/m_t)
+    def forward(self, targets, predictions):
+        # Ensure the input dimensions are correct
+        assert targets.shape == predictions.shape
+        
+        # Calculate mean of images for each sequence
+        target_means = targets.mean(dim=(3, 4), keepdim=True)  # Mean over the spatial dimensions and across all images
+        predict_means = predictions.mean(dim=(3, 4), keepdim=True)
 
-#         loss = r1 + r2 + loss_edge
-#         return loss
-class WeightedNonZeroMSELoss(nn.Module):
+        mse_means = nn.functional.mse_loss(target_means, predict_means)
+
+        # Normalize targets and predictions by their respective means
+        normalized_targets = targets / (target_means + 1e-8)  # Adding epsilon to avoid division by zero
+        normalized_predictions = predictions / (predict_means + 1e-8)
+        mse_normalized = nn.functional.mse_loss(normalized_targets, normalized_predictions)
+        total_loss = mse_means + mse_normalized
+
+        return total_loss
+class WeightedNonZeroL1Loss(nn.Module):
     def __init__(self, zero_weight=1, non_zero_weight=10):
-        super(WeightedNonZeroMSELoss, self).__init__()
+        super(WeightedNonZeroL1Loss, self).__init__()
         self.zero_weight = zero_weight  # Weight for zero pixels
         self.non_zero_weight = non_zero_weight  # Weight for non-zero pixels
 
     def forward(self, pred, target):
-        non_minimum_mask = (target != target.min())
+        # non_minimum_mask = (target != target.min())
+        non_minimum_mask = (target == 0.15)
         weights = torch.where(non_minimum_mask, self.non_zero_weight*torch.ones_like(target), self.zero_weight*torch.ones_like(target))  
-        element_wise_loss = nn.functional.mse_loss(target, pred, reduction='none')
+        element_wise_loss = nn.functional.l1_loss(target, pred, reduction='none')
         weighted_loss = element_wise_loss * weights
         final_loss = weighted_loss.mean() 
         
@@ -349,7 +361,7 @@ class WeightedSoble(nn.Module):
 
 
 if __name__ == '__main__':
-    pred = torch.randn((2,1,5,64,64))
-    target = torch.randn((2,1,5,64,64))
-    loss_object = WeightedSoble('cpu',0.8,0.2,0)
-    loss_object(target,pred)
+    pred = torch.randn((2,1,7,64,64))
+    target = torch.randn((2,1,7,64,64))
+    loss_object = FocalFrequencyLoss()
+    print(loss_object(target,pred))
