@@ -208,17 +208,25 @@ def mean_absolute_percentage_error(true,pred):
 
 def calculate_ssim_batch(target,pred):
     # Calculate SSIM for each image in the batch
-    batch_size = pred.shape[0]
+    num_samples, num_freqs, height, width = target.shape
     ssim_scores = []
-    for i in range(batch_size):
-        pred_img = pred[i,0,:,:]
-        target_img = target[i,0,:,:] #(1,64,64)
-        score = ssim(target_img,pred_img, data_range=target_img.max() - target_img.min())
-        ssim_scores.append(score)
 
-    # Average SSIM over the batch
-    avg_ssim = np.mean(ssim_scores)
-    return avg_ssim
+    for freq in range(num_freqs):
+        freq_ssim = []
+        for i in range(num_samples):
+            # Extract the specific frequency images from target and prediction
+            pred_img = pred[i, freq, :, :]
+            target_img = target[i, freq, :, :]
+            
+            # Compute SSIM for this frequency channel and sample
+            score = ssim(target_img, pred_img, data_range=target_img.max() - target_img.min())
+            freq_ssim.append(score)
+
+        # Average SSIM across all samples for this frequency
+        avg_ssim = np.mean(freq_ssim)
+        ssim_scores.append(avg_ssim)
+
+    return ssim_scores
 
 
 class SobelLoss(nn.Module):
@@ -304,6 +312,7 @@ class RelativeLoss(nn.Module):
         normalized_targets = targets / (target_means + 1e-8)  # Adding epsilon to avoid division by zero
         normalized_predictions = predictions / (predict_means + 1e-8)
         mse_normalized = nn.functional.mse_loss(normalized_targets, normalized_predictions)
+        
         total_loss = mse_means + mse_normalized
 
         return total_loss
