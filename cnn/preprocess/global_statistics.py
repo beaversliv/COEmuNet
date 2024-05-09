@@ -164,25 +164,16 @@ class GlobalStatsCalculator:
         }
 
 def main():
-    # file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/Batches/batch_{rank}.hsdf5' for rank in range(2)]
-    file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/data_augment/clean_rotate12000_{i}.hdf5' for i in range(5)]
-    # file_paths += ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_test.hdf5',
-    #                     '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_vali.hdf5']
-    vz_mean,vz_std,temp_min,temp_median,co_min,co_median,y_min,y_median = load(file_paths)
-    # vz_mean,vz_std = global_vz(file_paths, chunk_size=1000)
-    # temp_min,temp_median = calculate_global_statistics(file_paths, chunk_size=1000,order=1,read_x_condition=True)
-    # co_min,co_median = calculate_global_statistics(file_paths, chunk_size=1000,order=2,read_x_condition=True)
-    # y_min,y_median = calculate_global_statistics(file_paths, chunk_size=1000,order=1,read_x_condition=False)
-
-    statistics = {
-        'vz': [vz_mean,vz_std],
-        'temp': [temp_min,temp_median],
-        'co': [co_min,co_median],
-        'y': [y_min,y_median]
-    }
-    print('writing statistic values')
-    with open('/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl','wb') as file:
-        pickle.dump(statistics,file)
+    file_paths = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_0.hdf5',
+                '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_1.hdf5']
+    calculator = GlobalStatsCalculator(file_paths, batch_size=512)
+    calculator.calculator()
+    stats = calculator.get_global_stats()
+    print(stats)
+    
+    # print('writing statistic values')
+    # with open('/home/dc-su2/physical_informed/cnn/stats/mul_statistics.pkl','wb') as file:
+    #     pickle.dump(statistics,file)
 
 if __name__ == '__main__':
     main()
