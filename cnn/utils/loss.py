@@ -316,61 +316,39 @@ class RelativeLoss(nn.Module):
         total_loss = mse_means + mse_normalized
 
         return total_loss
-class WeightedNonZeroL1Loss(nn.Module):
-    def __init__(self, zero_weight=1, non_zero_weight=10):
-        super(WeightedNonZeroL1Loss, self).__init__()
-        self.zero_weight = zero_weight  # Weight for zero pixels
-        self.non_zero_weight = non_zero_weight  # Weight for non-zero pixels
 
-    def forward(self, pred, target):
-        # non_minimum_mask = (target != target.min())
-        non_minimum_mask = (target == 0.15)
-        weights = torch.where(non_minimum_mask, self.non_zero_weight*torch.ones_like(target), self.zero_weight*torch.ones_like(target))  
-        element_wise_loss = nn.functional.l1_loss(target, pred, reduction='none')
-        weighted_loss = element_wise_loss * weights
-        final_loss = weighted_loss.mean() 
-        
-        return final_loss
-
-def l1_penalty(model):
-    l1_loss = 0
-    for param in model.parameters():
-        if param.requires_grad:  # Ensure the parameter is trainable
-            l1_loss += torch.sum(torch.abs(param))  # L1 penalty for this parameter
-    return l1_loss
-
-class MaskMseLoss(nn.Module):
+class relativeLoss(nn.Module):
     def __init__(self):
-        super(MaskMseLoss, self).__init__()
-    def forward(self,pre,target):
-        mask = (target != 0).float()  # Binary mask: 1 for non-zero, 0 for zero
-        loss = nn.functional.mse_loss(pre, target, reduction='none')
-        masked_loss = loss * mask  
-        final_loss = masked_loss.sum() / mask.sum()
-        return final_loss
-class WeightedSoble(nn.Module):
-    def __init__(self,device,alpha,beta,epsi=0.01):
-        super(WeightedSoble, self).__init__()
-        self.edge_loss = SobelLoss().to(device)
-        # self.weight_loss = WeightedNonZeroL1Loss(zero_weight=0.0001, non_zero_weight=1.0)
-        self.weight_loss = MaskMseLoss()
-        self.alpha     = alpha
-        self.beta      = beta
-        self.epsi = epsi
-    
-    def forward(self, pred, target):
-        # Calculate the edge loss
-        loss_edge = self.edge_loss(pred, target)
-        # Calculate the MSE loss
-        loss_mse = self.weight_loss(pred, target)
-        loss_reg = l1_penalty(self)
-        # Combine the losses
-        loss_combined = self.alpha * loss_edge + self.beta * loss_mse + self.epsi * loss_reg
-        return loss_combined
+        super(relativeLoss, self).__init__()
+    def forward(self, target, pred):
+        if pred.dim() == 5:
+            batch_size, channels, depth, height, width = pred.shape
+            pred_reshaped = pred.view(batch_size * depth, channels, height, width)
+            target_reshaped = target.view(batch_size * depth, channels, height, width)
+        if pred.dim() == 4:
+            pred_reshaped = pred
+            target_reshaped = target
+        val,_ = torch.max(target_reshaped, dim=1,keepdim=True)
+        diff = torch.abs(target_reshaped-pred_reshaped) / val
+        return torch.mean(diff)
 
+class MAPELoss(nn.Module):
+    def __init__(self, device,epsilon=1e-8):
+        super(MAPELoss, self).__init__()
+        self.epsilon = epsilon
+        self.edge_loss = SobelLoss().to(device)
+
+    def forward(self, y_pred, y_true):
+        loss_edge = self.edge_loss(y_pred, y_true)
+        # Avoid division by zero by adding a small epsilon value
+        diff = torch.abs((y_true - y_pred) / (y_true + self.epsilon))
+
+        loss_combined = 0.8 * loss_edge + 0.2 * torch.mean(diff) * 100
+        return loss_combined
+        
 
 if __name__ == '__main__':
-    pred = torch.randn((2,1,7,64,64))
-    target = torch.randn((2,1,7,64,64))
-    loss_object = FocalFrequencyLoss()
+    pred = torch.randn((2,1,64,64))
+    target = torch.randn((2,1,64,64))
+    loss_object = relativeLoss()
     print(loss_object(target,pred))
