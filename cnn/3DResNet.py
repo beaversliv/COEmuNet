@@ -223,8 +223,6 @@ def main():
     ### set a model ###
     model = Net().to(device)
     
-    # resnet34 = ResNetFeatures().to(device)
-    # loss_object = Lossfunction(resnet34,mse_loss_scale = 0.8,freq_loss_scale=0.2, perceptual_loss_scale=0.0)
     loss_object = SobelMse(device,alpha=0.8,beta=0.2)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
@@ -246,7 +244,8 @@ def main():
     mean_error, median_error = mean_absolute_percentage_error(target,pred)
     print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
     avg_ssim = calculate_ssim_batch(target,pred)
-    print('SSIM: {:.4f}'.format(avg_ssim))
+    for freq in range(len(avg_ssim)):
+        print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
 
     # plot and save history
     # img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/original/results/img/')
