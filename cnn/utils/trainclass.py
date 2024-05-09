@@ -51,7 +51,7 @@ class Trainer:
     def run(self):
         tr_losses = []
         vl_losses = []
-        for epoch in tqdm(range(self.config.epochs)):
+        for epoch in tqdm(range(self.config['epochs'])):
             epoch_loss = self.train()
             torch.cuda.empty_cache()  # Clear cache after training
             
@@ -60,8 +60,8 @@ class Trainer:
             tr_losses.append(epoch_loss)
             vl_losses.append(val_loss)
             print('Train Epoch: {}/{} Loss: {:.4f}'.format(
-                    epoch, self.config.epochs, epoch_loss))
+                    epoch, self.config['epochs'], epoch_loss))
             print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
-                epoch, self.config.epochs, val_loss))
+                epoch, self.config['epochs'], val_loss))
             
         return tr_losses, vl_losses

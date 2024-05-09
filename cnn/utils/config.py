@@ -13,7 +13,24 @@ def faceon_args():
     parser.add_argument('--lr', type = float, default = 1e-3,help='learning rate')
     parser.add_argument('--lr_decay', type = float, default = 0.95)
     parser.add_argument('--seed',type = int, default=1234,help='random seed')
-    return parser
+    parser.add_argument('--num_freqs',type = int, default=31,help='number of frequency')
+
+    args = parser.parse_args()
+    
+    config = OrderedDict([
+            ('path_dir', args.path_dir),
+            ('exp_name', args.exp_name),
+            ('model', args.model),
+            ('model_grid', args.model_grid),
+            ('dataset', args.dataset),
+            ('epochs', args.epochs),
+            ('batch_size', args.batch_size),
+            ('lr', args.lr),
+            ('lr_decay', args.lr_decay),
+            ('seed', args.seed),
+            ('num_freqs', args.num_freqs)
+            ])
+    return config
 
 def rotation_args():
     parser = argparse.ArgumentParser()
@@ -26,7 +43,19 @@ def rotation_args():
     parser.add_argument('--lr_decay', type = float, default = 0.95)
     parser.add_argumeny('--seed',type = int, default=1234)
     parser.add_argumeny('--histroy',type = str, default='/home/dc-su2/physical_informed/cnn/rotate/results/history.pkl')
-    return parser
+    config = OrderedDict([
+            ('path_dir', args.path_dir),
+            ('model', args.model),
+            
+            ('dataset', args.dataset),
+            ('epochs', args.epochs),
+            ('batch_size', args.batch_size),
+            ('lr', args.lr),
+            ('lr_decay', args.lr_decay),
+            ('seed', args.seed),
+            ('history',args.history)
+            ])
+    return config
 
 def equivariant_args():
     parser = argparse.ArgumentParser()
@@ -39,4 +68,16 @@ def equivariant_args():
     parser.add_argument('--lr_decay', type = float, default = 0.95)
     parser.add_argumeny('--seed',type = int, default=1234)
     parser.add_argumeny('--histroy',type = str, default='/home/dc-su2/physical_informed/cnn/steerable/history.pkl')
-    return parser
+    config = OrderedDict([
+            ('path_dir', args.path_dir),
+            ('model', args.model),
+            
+            ('dataset', args.dataset),
+            ('epochs', args.epochs),
+            ('batch_size', args.batch_size),
+            ('lr', args.lr),
+            ('lr_decay', args.lr_decay),
+            ('seed', args.seed),
+            ('history',args.history)
+            ])
+    return config
