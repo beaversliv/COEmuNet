@@ -5,6 +5,7 @@ from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel  import Net3D,Net
+from utils.trainclass     import Trainer
 from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch,WeightedNonZeroL1Loss,WeightedSoble
 from utils.plot           import img_plt,history_plt
 
@@ -71,9 +72,8 @@ def parse_args():
             ('batch_size', args.batch_size),
             ('lr', args.lr),
             ('lr_decay', args.lr_decay),
-            ('num_freqs',args.num_freqs)
+            ('num_freqs', args.num_freqs)
             ])
-    
     return config
 
 class preProcessing:
@@ -128,84 +128,19 @@ class preProcessing:
         # set threshold
         y[y<=-40] = -40
         # pre-processing: reflect and take base 10 logrithmn
-        y -= np.min(y)
-        reflection_point = y.max() + 1
-        y = reflection_point - y
-        print('reflection point:',reflection_point)
-        y = np.log10(y)
-        
+        print('min:',np.min(y))
+        print('max:',np.max(y))
         y = (y - np.min(y))/ (np.max(y) - np.min(y))
+        # reflection_point = y.max() + 1
+        # reflection_point = 1.0
+        # y = reflection_point - y
+        # print('reflection point:',reflection_point)
+        # y = np.log10(y)
+        
+        # y = (y - np.min(y))/ (np.max(y) - np.min(y))
         y = np.transpose(y,(0,3,1,2))
         y = y[:,np.newaxis,:,:,:]
         return np.transpose(x_t, (1, 0, 2, 3, 4)), y
-
-### train step ###
-class Trainer:
-    def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
-        self.model = model
-        self.loss_object = loss_object
-        self.optimizer   = optimizer
-        self.train_dataloader = train_dataloader
-        self.test_dataloader  = test_dataloader
-        self.config = config
-        self.device = device
-    
-    def train(self):
-        total_loss = 0.
-        self.model.train()
-         
-        for bidx, samples in enumerate(self.train_dataloader):
-            data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
- 
-            self.optimizer.zero_grad()
-            output = self.model(data)
-            # print(target.shape)
-            # print(output.shape)
-            
-            # sys.exit()
-            loss = self.loss_object(target, output)
-            # sys.exit()
-            loss.backward()
-            self.optimizer.step()
-            total_loss += loss.detach().cpu().numpy()
-        epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
-        return epoch_loss
-
-    
-    def test(self):
-        self.model.eval()
-        P = []
-        T = []
-        L = []
-        for bidx, samples in enumerate(self.test_dataloader):
-            data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
-            pred = self.model(data)
-            loss = self.loss_object(target, pred)
-            
-            P.append(pred.detach().cpu().numpy())
-            T.append(target.detach().cpu().numpy())
-            L.append(loss.detach().cpu().numpy())
-        P = np.vstack(P)
-        T = np.vstack(T)
-        return P,T,np.mean(L)
-    def run(self):
-        tr_losses = []
-        vl_losses = []
-        for epoch in tqdm(range(self.config['epochs'])):
-            epoch_loss = self.train()
-
-            torch.cuda.empty_cache()  # Clear cache after training
-            
-            _, _, val_loss = self.test()
-            torch.cuda.empty_cache()  # Clear cache after evaluation
-            tr_losses.append(epoch_loss)
-            vl_losses.append(val_loss)
-            print('Train Epoch: {}/{} Loss: {:.4f}'.format(
-                    epoch, self.config['epochs'], epoch_loss))
-            print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
-                epoch, self.config["epochs"], val_loss))
-            
-        return tr_losses, vl_losses
 
 def main():
     config = parse_args()
@@ -273,10 +208,10 @@ def main():
     target = target[:,0,:,:,:]
     pred = pred[:,0,:,:,:]
     avg_ssim = calculate_ssim_batch(target,pred)
-
-    print('SSIM: {:.5f}'.format(avg_ssim))
+    for freq in range(len(avg_ssim)):
+        print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
     
-    with open(f"/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_CMB{config['num_freqs']}_Reflect_history.pkl", "wb") as pickle_file:
+    with open(f"/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/test{config['num_freqs']}_NOrefelct_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
