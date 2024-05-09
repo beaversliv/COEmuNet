@@ -10,7 +10,7 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=RuntimeWarning)
     from utils.so3_model      import SO3Net
 from utils.trainclass     import Trainer
-from data                 import load_face_on_view_grid64, load_random_view_grid64, load_face_on_view_grid32, load_random_view_grid32,load_face_on_view_grid128,load_random_view_grid128
+from utils.data           import load_face_on_view_grid64, load_random_view_grid64, load_face_on_view_grid32, load_random_view_grid32,load_face_on_view_grid128,load_random_view_grid128
 from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 from utils.config         import faceon_args
