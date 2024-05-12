@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import sys
 # Structural Similarity Index Measure (SSIM) 
 from skimage.metrics import structural_similarity as ssim
 from collections import namedtuple
@@ -279,7 +280,7 @@ class SobelLoss(nn.Module):
         
         return loss
 class SobelMse(nn.Module):
-    def __init__(self,device,alpha,beta):
+    def __init__(self,device,alpha=0.5,beta=0.2):
         super(SobelMse, self).__init__()
         self.edge_loss = SobelLoss().to(device)
         self.alpha     = alpha
@@ -290,8 +291,10 @@ class SobelMse(nn.Module):
         loss_edge = self.edge_loss(pred, target)
         # Calculate the MSE loss
         loss_mse = nn.functional.mse_loss(pred, target)
+        # Calculate the MAE loss
+        loss_mae = nn.functional.l1_loss(pred,target)
         # Combine the losses
-        loss_combined = self.alpha * loss_edge + self.beta * loss_mse
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mse + 0.3*loss_mae
         return loss_combined
 
 class RelativeLoss(nn.Module):
@@ -301,21 +304,33 @@ class RelativeLoss(nn.Module):
     def forward(self, targets, predictions):
         # Ensure the input dimensions are correct
         assert targets.shape == predictions.shape
+
+        if predictions.dim() == 5:
+            batch_size, channels, depth, height, width = predictions.shape
+            pred_reshaped = predictions.view(batch_size * depth, channels, height, width)
+            target_reshaped = targets.view(batch_size * depth, channels, height, width)
+        if predictions.dim() == 4:
+            pred_reshaped = predictions
+            target_reshaped = targets
         
         # Calculate mean of images for each sequence
-        target_means = targets.mean(dim=(3, 4), keepdim=True)  # Mean over the spatial dimensions and across all images
-        predict_means = predictions.mean(dim=(3, 4), keepdim=True)
+        target_means = target_reshaped.mean(dim=(2, 3), keepdim=True)  # Mean over the spatial dimensions and across all images
+        predict_means = pred_reshaped.mean(dim=(2, 3), keepdim=True)
 
         mse_means = nn.functional.mse_loss(target_means, predict_means)
-
-        # Normalize targets and predictions by their respective means
-        normalized_targets = targets / (target_means + 1e-8)  # Adding epsilon to avoid division by zero
-        normalized_predictions = predictions / (predict_means + 1e-8)
-        mse_normalized = nn.functional.mse_loss(normalized_targets, normalized_predictions)
+        # scaled_mean = pred_max/target_max
+        # ones = torch.ones_like(scaled_mean)
+        # mse_means = nn.functional.mse_loss(ones, scaled_mean)
         
-        total_loss = mse_means + mse_normalized
+        # Normalize targets and predictions by their respective means
+        normalized_targets = target_reshaped / (target_means)  # Adding epsilon to avoid division by zero
+        normalized_predictions = pred_reshaped / (predict_means)
+        # # print('nomalized pred\n',normalized_targets)
 
-        return total_loss
+        mse_normalized = nn.functional.mse_loss(normalized_targets, normalized_predictions)
+        # total_loss = mse_means + mse_normalized
+
+        return mse_means,mse_normalized
 
 class relativeLoss(nn.Module):
     def __init__(self):
@@ -328,9 +343,10 @@ class relativeLoss(nn.Module):
         if pred.dim() == 4:
             pred_reshaped = pred
             target_reshaped = target
-        val,_ = torch.max(target_reshaped, dim=1,keepdim=True)
+        
+        val,_ = torch.max(target_reshaped + 1e-8, dim=1,keepdim=True)
         diff = torch.abs(target_reshaped-pred_reshaped) / val
-        return torch.mean(diff)
+        return torch.mean(diff) * 100
 
 class MAPELoss(nn.Module):
     def __init__(self, device,epsilon=1e-8):
@@ -348,7 +364,14 @@ class MAPELoss(nn.Module):
         
 
 if __name__ == '__main__':
-    pred = torch.randn((2,1,64,64))
-    target = torch.randn((2,1,64,64))
-    loss_object = relativeLoss()
-    print(loss_object(target,pred))
+    min_value = 0.0
+    max_value = 1.0
+
+    pred = (max_value - min_value) * torch.rand((2,1,2,2)) + min_value
+    
+    target = (max_value - min_value) * torch.rand((2,1,2,2)) + min_value
+    # print('target value',target)
+    # print('pred value',pred)
+    loss_object =   RelativeLoss()
+    loss1,loss2 = loss_object(target,pred)
+    print(loss1,loss2)
