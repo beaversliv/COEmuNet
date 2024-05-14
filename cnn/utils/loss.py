@@ -295,6 +295,24 @@ class SobelMse(nn.Module):
         loss_combined = self.alpha * loss_edge + self.beta * loss_mse
         return loss_combined
 
+class SobelMseMAE(nn.Module):
+    def __init__(self,device,alpha=0.6,beta=0.2,gamma=0.2):
+        super(SobelMseMAE, self).__init__()
+        self.edge_loss = SobelLoss().to(device)
+        self.alpha     = alpha
+        self.beta      = beta
+        self.gamma     = gamma
+    
+    def forward(self, pred, target):
+        # Calculate the edge loss
+        loss_edge = self.edge_loss(pred, target)
+        # Calculate the MSE loss
+        loss_mse = nn.functional.mse_loss(pred, target)
+        loss_mae = nn.functional.l1_loss(pred,target)
+        # Combine the losses
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mse + self.gamma * loss_mae
+        return loss_combined
+
 class RelativeLoss(nn.Module):
     def __init__(self):
         super(RelativeLoss, self).__init__()
@@ -356,6 +374,6 @@ if __name__ == '__main__':
     target = (max_value - min_value) * torch.rand((2,1,2,2)) + min_value
     # print('target value',target)
     # print('pred value',pred)
-    loss_object =   relativeLoss('cpu')
+    loss_object =   SobelMseMAE('cpu')
     loss = loss_object(target,pred)
     print(loss)
