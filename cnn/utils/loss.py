@@ -280,7 +280,7 @@ class SobelLoss(nn.Module):
         
         return loss
 class SobelMse(nn.Module):
-    def __init__(self,device,alpha=0.5,beta=0.2):
+    def __init__(self,device,alpha=0.8,beta=0.2):
         super(SobelMse, self).__init__()
         self.edge_loss = SobelLoss().to(device)
         self.alpha     = alpha
@@ -291,10 +291,8 @@ class SobelMse(nn.Module):
         loss_edge = self.edge_loss(pred, target)
         # Calculate the MSE loss
         loss_mse = nn.functional.mse_loss(pred, target)
-        # Calculate the MAE loss
-        loss_mae = nn.functional.l1_loss(pred,target)
         # Combine the losses
-        loss_combined = self.alpha * loss_edge + self.beta * loss_mse + 0.3*loss_mae
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mse
         return loss_combined
 
 class RelativeLoss(nn.Module):
@@ -328,13 +326,14 @@ class RelativeLoss(nn.Module):
         # # print('nomalized pred\n',normalized_targets)
 
         mse_normalized = nn.functional.mse_loss(normalized_targets, normalized_predictions)
-        # total_loss = mse_means + mse_normalized
+        total_loss = mse_means + mse_normalized
 
         return mse_means,mse_normalized
 
 class relativeLoss(nn.Module):
-    def __init__(self):
+    def __init__(self,device):
         super(relativeLoss, self).__init__()
+        self.sobleMSE = SobelMse(device)
     def forward(self, target, pred):
         if pred.dim() == 5:
             batch_size, channels, depth, height, width = pred.shape
@@ -346,22 +345,7 @@ class relativeLoss(nn.Module):
         
         val,_ = torch.max(target_reshaped + 1e-8, dim=1,keepdim=True)
         diff = torch.abs(target_reshaped-pred_reshaped) / val
-        return torch.mean(diff) * 100
-
-class MAPELoss(nn.Module):
-    def __init__(self, device,epsilon=1e-8):
-        super(MAPELoss, self).__init__()
-        self.epsilon = epsilon
-        self.edge_loss = SobelLoss().to(device)
-
-    def forward(self, y_pred, y_true):
-        loss_edge = self.edge_loss(y_pred, y_true)
-        # Avoid division by zero by adding a small epsilon value
-        diff = torch.abs((y_true - y_pred) / (y_true + self.epsilon))
-
-        loss_combined = 0.8 * loss_edge + 0.2 * torch.mean(diff) * 100
-        return loss_combined
-        
+        return (1-1e-9)*self.sobleMSE(target_reshaped,pred_reshaped), 1e-9*torch.mean(diff)
 
 if __name__ == '__main__':
     min_value = 0.0
@@ -372,6 +356,6 @@ if __name__ == '__main__':
     target = (max_value - min_value) * torch.rand((2,1,2,2)) + min_value
     # print('target value',target)
     # print('pred value',pred)
-    loss_object =   RelativeLoss()
-    loss1,loss2 = loss_object(target,pred)
-    print(loss1,loss2)
+    loss_object =   relativeLoss('cpu')
+    loss = loss_object(target,pred)
+    print(loss)

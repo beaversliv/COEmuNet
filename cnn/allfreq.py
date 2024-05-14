@@ -6,7 +6,7 @@ from torch.autograd import Variable
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel  import Net3D,Net
 from utils.trainclass     import Trainer
-from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch,WeightedNonZeroL1Loss,WeightedSoble
+from utils.loss           import relativeLoss,RelativeLoss,SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 
 # helper packages
@@ -23,6 +23,7 @@ from collections                  import OrderedDict
 import matplotlib.pyplot          as plt
 from sklearn.model_selection      import train_test_split 
 from sklearn.preprocessing        import QuantileTransformer
+import matplotlib.pyplot          as plt
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 seed = 1234
 np.random.seed(seed)
@@ -141,6 +142,83 @@ class preProcessing:
         y = np.transpose(y,(0,3,1,2))
         y = y[:,np.newaxis,:,:,:]
         return np.transpose(x_t, (1, 0, 2, 3, 4)), y
+# class Trainer:
+#     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
+#         self.model = model
+#         self.loss_object = loss_object
+#         self.optimizer   = optimizer
+#         self.train_dataloader = train_dataloader
+#         self.test_dataloader  = test_dataloader
+#         self.config = config
+#         self.device = device
+    
+#     def train(self):
+#         total_SM = 0.
+#         total_rl = 0.
+#         self.model.train()
+         
+#         for bidx, samples in enumerate(self.train_dataloader):
+#             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+#             self.optimizer.zero_grad()
+#             output = self.model(data)
+#             sobleMSE,maxrl = self.loss_object(target, output)
+#             loss = sobleMSE + maxrl
+#             loss.backward()
+#             self.optimizer.step()
+
+#             total_SM += sobleMSE.detach().cpu().numpy()
+#             total_rl += maxrl.detach().cpu().numpy()
+
+#         epoch_SM = total_SM / len(self.train_dataloader)  # divide number of batches
+#         epoch_rl = total_rl / len(self.train_dataloader)
+#         return epoch_SM,epoch_rl
+
+    
+#     def test(self):
+#         self.model.eval()
+#         P = []
+#         T = []
+#         SM = []
+#         rl = []
+#         for bidx, samples in enumerate(self.test_dataloader):
+#             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+#             pred = self.model(data)
+#             sobleMSE,maxrl = self.loss_object(target, pred)
+            
+#             P.append(pred.detach().cpu().numpy())
+#             T.append(target.detach().cpu().numpy())
+#             SM.append(sobleMSE.detach().cpu().numpy())
+#             rl.append(maxrl.detach().cpu().numpy())
+#         P = np.vstack(P)
+#         T = np.vstack(T)
+#         return P,T,np.mean(SM),np.mean(rl)
+#     def run(self):
+#         tr_losses = []
+#         vl_losses = []
+#         for epoch in tqdm(range(self.config['epochs'])):
+#             tr_sm,tr_rl = self.train()
+#             torch.cuda.empty_cache()  # Clear cache after training
+            
+#             _, _, val_sm,val_rl = self.test()
+#             torch.cuda.empty_cache()  # Clear cache after evaluation
+#             tr_losses.append((tr_sm,tr_rl))
+#             vl_losses.append((val_sm,val_rl))
+#             print('Train Epoch: {}/{} Loss: {:.4f}'.format(
+#                     epoch, self.config['epochs'], tr_sm+tr_rl))
+#             print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
+#                 epoch, self.config['epochs'], val_sm+val_rl))
+            
+#         return tr_losses, vl_losses
+
+def postprocessing(y):
+    min_ = -40.0
+    max_ = -27.664127
+    a = y * (max_ - min_) + min_
+    return a
+
+def meanMaxPercentageError(original_target,original_pred):
+    return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) *100
+
 
 def main():
     config = parse_args()
@@ -163,7 +241,7 @@ def main():
     # with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
     #     x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
     #     y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_12000.hdf5',config['num_freqs'])
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_1200.hdf5',config['num_freqs'])
     x,y = data_gen.get_data()
 
     # train test split
@@ -183,10 +261,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
     model = Net3D(config['num_freqs']).to(device)
 
-    # loss_object = WeightedSoble(device,alpha=0.8,beta=0.2)
-    # loss_object = WeightedNonZeroMSELoss(zero_weight=1, non_zero_weight=10)
-    # loss_object = nn.BCELoss()
-    loss_object = SobelMse(device,alpha=0.8,beta=0.2)
+    loss_object = SobelMse(device)
+    # loss_object = relativeLoss(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
     ### start training ###
@@ -198,21 +274,27 @@ def main():
     print(f'running time:{(end-start)/60} mins')
     
     ### validation ###
-    pred, target, test_loss = trainer.test()
-    print('Test Epoch: {} Loss: {:.4f}\n'.format(
-                config["epochs"], test_loss))
+    pred, target, _ = trainer.test()
+    # print('Test Epoch: {} Loss: {:.4f}\n'.format(
+    #             config["epochs"], test_loss))
     data = (tr_losses, vl_losses,pred, target)
     
-    mean_error, median_error = mean_absolute_percentage_error(target,pred)
-    print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
+    with open(f"/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/test_history.pkl", "wb") as pickle_file:
+        pickle.dump(data, pickle_file)
+    # post processing
     target = target[:,0,:,:,:]
     pred = pred[:,0,:,:,:]
-    avg_ssim = calculate_ssim_batch(target,pred)
+     
+    log_target = postprocessing(target)
+    log_pred   = postprocessing(pred)
+    original_target = np.exp(log_target)
+    original_pred = np.exp(log_pred)
+    print('relative loss',meanMaxPercentageError(original_target,original_pred))
+
+    avg_ssim = calculate_ssim_batch(log_target,log_pred)
     for freq in range(len(avg_ssim)):
         print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
-    
-    with open(f"/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/test{config['num_freqs']}_NOrefelct_history.pkl", "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
+
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
     # torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/random_Multi7_model.pth')
