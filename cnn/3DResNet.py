@@ -202,7 +202,7 @@ def main():
     # test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
     x,y = data_gen.get_data()
-
+    
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
 
