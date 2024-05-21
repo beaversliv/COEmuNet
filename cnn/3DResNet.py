@@ -192,7 +192,7 @@ def postProcessing(y):
     return y
 
 def relativeLoss(original_target,original_pred):
-    return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) **100
+    return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True))
 def main():
     config = parse_args()
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
@@ -238,7 +238,7 @@ def main():
     data = (tr_losses, vl_losses,pred, target)
     original_target = postProcessing(target)
     original_pred = postProcessing(pred)
-    print(f'relative loss {relativeLoss(original_target,original_pred)}%')
+    print(f'relative loss {relativeLoss(original_target,original_pred)}')
 
     avg_ssim = calculate_ssim_batch(target,pred)
     for freq in range(len(avg_ssim)):

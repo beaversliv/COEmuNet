@@ -117,9 +117,9 @@ class Net(nn.Module):
         elif model_grid == 64:
             self.to_lat1 = nn.Linear(32*4*4*4*3,16*16*16)
             self.to_lat2 = nn.Linear(16*16*16,512)
-            self.to_lat3 = nn.Linear(512,512)
-            self.to_dec1 = nn.Linear(512,512)
-            self.to_dec2 = nn.Linear(512,512)
+            self.to_lat3 = nn.Linear(512,256)
+            self.to_dec1 = nn.Linear(256,256)
+            self.to_dec2 = nn.Linear(256,512)
             self.to_dec3 = nn.Linear(512,64*8*8)
         elif model_grid == 128:
             self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
