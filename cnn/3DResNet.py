@@ -185,27 +185,13 @@ class preProcessing:
         return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
 def main():
     config = parse_args()
-    # file paths for train, vali and test
-    # file_statistics = '/home/dc-su2/physical_informed/cnn/original/clean_statistics.pkl'
-    # train_file_path = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_train_{i}.hdf5' for i in range(4)]
-    # vali_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_vali.hdf5']
-    # test_file_path  = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/cnn/faceon/new_test.hdf5']
-
-    # custom_transform = CustomTransform(file_statistics)
-    # train_dataset= IntensityDataset(train_file_path,transform=custom_transform)
-    # train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
-
-    # vali_dataset= IntensityDataset(vali_file_path,transform=custom_transform)
-    # vali_dataloader = DataLoader(vali_dataset, batch_size=config['batch_size'], shuffle=True,num_workers=2)
-
-    # test_dataset= IntensityDataset(test_file_path,transform=custom_transform)
-    # test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
     x,y = data_gen.get_data()
     
     # train test split
-    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-
+    # xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
+    xtr,xte = x[:800],x[800:1000]
+    ytr,yte = y[:800],y[800:1000]
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
     xte = torch.tensor(xte,dtype=torch.float32)
