@@ -199,9 +199,9 @@ def main():
     x,y = data_gen.get_data()
     
     # train test split
-    # xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr,xte = x[:800],x[800:1000]
-    ytr,yte = y[:800],y[800:1000]
+    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
+    # xtr,xte = x[:800],x[800:1000]
+    # ytr,yte = y[:800],y[800:1000]
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
     xte = torch.tensor(xte,dtype=torch.float32)
@@ -219,7 +219,7 @@ def main():
     ### set a model ###
     model = Net().to(device)
     
-    loss_object = SobelMse(device,alpha=0.8,beta=0.2)
+    loss_object = SobelMse(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
 
