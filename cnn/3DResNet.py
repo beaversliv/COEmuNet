@@ -183,6 +183,16 @@ class preProcessing:
         print('median',np.median(y))
         y = y/np.median(y)
         return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
+def postProcessing(y):
+    
+    min_ = -47.387955
+    median = 8.168968
+    y = y*median + min_
+    y = np.exp(y)
+    return y
+
+def relativeLoss(original_target,original_pred):
+    return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) **100
 def main():
     config = parse_args()
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
@@ -226,9 +236,10 @@ def main():
     print('Test Epoch: {} Loss: {:.4f}\n'.format(
                 config["epochs"], test_loss))
     data = (tr_losses, vl_losses,pred, target)
+    original_target = postProcessing(target)
+    original_pred = postProcessing(pred)
+    print(f'relative loss {relativeLoss(original_target,original_pred)}%')
 
-    mean_error, median_error = mean_absolute_percentage_error(target,pred)
-    print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
     avg_ssim = calculate_ssim_batch(target,pred)
     for freq in range(len(avg_ssim)):
         print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
