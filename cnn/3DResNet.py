@@ -199,9 +199,9 @@ def main():
     x,y = data_gen.get_data()
     
     # train test split
-    # xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr,xte = x[:800],x[800:1000]
-    ytr,yte = y[:800],y[800:1000]
+    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
+    # xtr,xte = x[:800],x[800:1000]
+    # ytr,yte = y[:800],y[800:1000]
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
     xte = torch.tensor(xte,dtype=torch.float32)
@@ -249,7 +249,7 @@ def main():
     # plot and save history
     # img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/original/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/original/results/')
-    # torch.save(model.state_dict(),'/home/dc-su2/physical_informed/cnn/original/results/new_model.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_model.pth')
 
 
 if __name__ == '__main__':
