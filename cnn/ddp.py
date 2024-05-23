@@ -4,10 +4,9 @@ import torch.distributed as dist
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
-
-
 from torch.profiler import profile, record_function, ProfilerActivity
 
+from utils.preprocessing  import preProcessing
 from utils.ResNet3DModel  import Net
 from utils.loss           import FreqMSE,mean_absolute_percentage_error, calculate_ssim_batch
 # from utils.plot           import img_plt
@@ -24,6 +23,7 @@ import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 from sklearn.model_selection      import train_test_split 
+from socket                       import gethostname
 seed = 1234
 np.random.seed(seed)
 torch.manual_seed(seed)
@@ -31,11 +31,11 @@ torch.cuda.manual_seed_all(seed)
 
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
-    os.environ["MASTER_ADDR"] = 'localhost'
-    os.environ["MASTER_PORT"] = "12355"
+    os.environ["MASTER_ADDR"] = os.environ.get("MASTER_ADDR", "localhost")
+    os.environ["MASTER_PORT"] = os.environ.get("MASTER_PORT", "12355")
 
     # Initialize the process group
-    dist.init_process_group("gloo", rank=rank, world_size=world_size)
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 def cleanup():
     "Cleans up the distributed environment"
@@ -46,7 +46,7 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
-    parser.add_argument('--epochs', type = int, default = 1000)
+    parser.add_argument('--epochs', type = int, default = 10)
     parser.add_argument('--batch_size', type = int, default = 32) 
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -74,9 +74,8 @@ class Trainer:
         self.test_dataloader  = test_dataloader
 
         self.config = config
-        self.rank   = rank # world_size -1, distinguish each process
+        self.rank   = rank # global rank, world_size -1, distinguish each process
         self.world_size = world_size # num GPUs
-        self.device = torch.device(f'cuda:{rank}') if torch.cuda.is_available() else torch.device('cpu')
         # Define the optimizer for the DDP model
         self.optimizer = torch.optim.Adam(ddp_model.parameters(), lr=self.config['lr'], betas=(0.9, 0.999))
         self.loss_object = FreqMSE(alpha=0.8,beta=0.2)
@@ -205,15 +204,17 @@ def prepare(dataset,rank, world_size, batch_size, pin_memory=False, num_workers=
     dataloader = DataLoader(dataset, batch_size, pin_memory=pin_memory, num_workers=num_workers, drop_last=False, shuffle=False, sampler=sampler)
     
     return dataloader
-def ddp_train(rank, world_size, train_dataset, test_dataset, config):
+def ddp_train(rank, world_size, train_dataset, test_dataset, config,gpus_per_node):
     # Initialize any necessary components for DDP
    
     setup(rank, world_size)
     print(f"Process {rank} out of {world_size} says: {torch.cuda.device_count()} GPUs available\n")
-
+    
+    local_rank = rank - gpus_per_node * (rank // gpus_per_node)
+    torch.cuda.set_device(local_rank)
     model = Net()
-    model = model.to(rank)
-    ddp_model = DDP(model, device_ids=[rank],find_unused_parameters=True)
+    model = model.to(local_rank)
+    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
    
     train_dataloader = prepare(train_dataset, rank, world_size, config['batch_size'], pin_memory=True, num_workers=3)
     test_dataloader = prepare(test_dataset,rank, world_size, config['batch_size'], pin_memory=True, num_workers=3)
@@ -231,17 +232,21 @@ def ddp_train(rank, world_size, train_dataset, test_dataset, config):
     # Clean up
     cleanup()
 def main():
-    
-    world_size = torch.cuda.device_count()
-
+    # Initialize any necessary components for DDP
+    world_size    = int(os.environ.get("SLURM_NTASKS"))
+    rank          = int(os.environ.get("SLURM_PROCID"))
+    gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
+    print(f"Hello from rank {rank} of {world_size} on {gethostname()} where there are" \
+          f" {gpus_per_node} allocated GPUs per node.", flush=True)
+   
     config = parse_args()
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
     x,y = data_gen.get_data()
     
     # train test split
-    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    # xtr,xte = x[:800],x[800:1000]
-    # ytr,yte = y[:800],y[800:1000]
+    # xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
+    xtr,xte = x[:800],x[800:1000]
+    ytr,yte = y[:800],y[800:1000]
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
     xte = torch.tensor(xte,dtype=torch.float32)
@@ -250,14 +255,11 @@ def main():
     train_dataset = TensorDataset(xtr, ytr)
     test_dataset = TensorDataset(xte, yte)
 
-    ## torch data loader ###
-    train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
 
     ### start training ###
     start = time.time()
     mp.spawn(ddp_train,
-             args=(world_size, train_dataset, test_dataset, config),
+             args=(rank, world_size, train_dataset, test_dataset, config,gpus_per_node),
              nprocs=world_size,
              join=True)
     end = time.time()
