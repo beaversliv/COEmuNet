@@ -5,7 +5,7 @@ from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel          import Net
-from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import SobelMse,MaxRel, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 from utils.preprocessing  import preProcessing
 from utils.trainclass     import Trainer
@@ -75,8 +75,6 @@ def postProcessing(y):
     y = np.exp(y)
     return y
 
-def relativeLoss(original_target,original_pred):
-    return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True))
 def main():
     config = parse_args()
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
@@ -124,7 +122,7 @@ def main():
         pickle.dump(data, pickle_file)
     original_target = postProcessing(target)
     original_pred = postProcessing(pred)
-    print(f'relative loss {relativeLoss(original_target,original_pred)}')
+    print(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
 
     avg_ssim = calculate_ssim_batch(target,pred)
     for freq in range(len(avg_ssim)):

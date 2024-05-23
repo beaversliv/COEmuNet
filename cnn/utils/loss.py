@@ -200,36 +200,6 @@ class Lossfunction(nn.Module):
 
         return perceptual_loss
 
-def mean_absolute_percentage_error(true,pred):
-    # Avoid division by zero
-    true, pred = true + 1e-8, pred + 1e-8
-    mean_error = np.mean(np.abs((true - pred) / true)) * 100
-    median_error = np.median(np.abs((true - pred) / true))*100
-    return mean_error, median_error
-
-def calculate_ssim_batch(target,pred):
-    # Calculate SSIM for each image in the batch
-    num_samples, num_freqs, height, width = target.shape
-    ssim_scores = []
-
-    for freq in range(num_freqs):
-        freq_ssim = []
-        for i in range(num_samples):
-            # Extract the specific frequency images from target and prediction
-            pred_img = pred[i, freq, :, :]
-            target_img = target[i, freq, :, :]
-            
-            # Compute SSIM for this frequency channel and sample
-            score = ssim(target_img, pred_img, data_range=target_img.max() - target_img.min())
-            freq_ssim.append(score)
-
-        # Average SSIM across all samples for this frequency
-        avg_ssim = np.mean(freq_ssim)
-        ssim_scores.append(avg_ssim)
-
-    return ssim_scores
-
-
 class SobelLoss(nn.Module):
     '''
     sobelloss for all freq
@@ -366,7 +336,35 @@ class relativeLoss(nn.Module):
         val,_ = torch.max(target_reshaped + 1e-8, dim=1,keepdim=True)
         diff = torch.abs(target_reshaped-pred_reshaped) / val
         return (1-1e-9)*self.sobleMSE(target_reshaped,pred_reshaped), 1e-9*torch.mean(diff)
+def mean_absolute_percentage_error(true,pred):
+    # Avoid division by zero
+    true, pred = true + 1e-8, pred + 1e-8
+    mean_error = np.mean(np.abs((true - pred) / true)) * 100
+    median_error = np.median(np.abs((true - pred) / true))*100
+    return mean_error, median_error
+def MaxRel(original_target,original_pred):
+    return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) * 100
+def calculate_ssim_batch(target,pred):
+    # Calculate SSIM for each image in the batch
+    num_samples, num_freqs, height, width = target.shape
+    ssim_scores = []
 
+    for freq in range(num_freqs):
+        freq_ssim = []
+        for i in range(num_samples):
+            # Extract the specific frequency images from target and prediction
+            pred_img = pred[i, freq, :, :]
+            target_img = target[i, freq, :, :]
+            
+            # Compute SSIM for this frequency channel and sample
+            score = ssim(target_img, pred_img, data_range=target_img.max() - target_img.min())
+            freq_ssim.append(score)
+
+        # Average SSIM across all samples for this frequency
+        avg_ssim = np.mean(freq_ssim)
+        ssim_scores.append(avg_ssim)
+
+    return ssim_scores
 if __name__ == '__main__':
     min_value = 0.0
     max_value = 1.0

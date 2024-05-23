@@ -5,7 +5,7 @@ from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel  import Net3D,Net
-from utils.loss           import SobelMse,Lossfunction,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import SobelMse,MaxRel, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 from utils.trainclass     import Trainer
 
@@ -73,6 +73,13 @@ def parse_args():
             ])
     
     return config
+def postProcessing(self,y):
+    
+    min_ = -50.24472
+    median = 11.025192
+    y = y*median + min_
+    y = np.exp(y)
+    return y
 def main():
     config = parse_args()
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
@@ -111,8 +118,10 @@ def main():
                 config["epochs"], test_loss))
     data = (tr_losses, vl_losses,pred, target)
     
-    mean_error, median_error = mean_absolute_percentage_error(target,pred)
-    print('mean relative error: {:.4f}\n, median relative error: {:.4f}'.format(mean_error,median_error))
+    original_target = postProcessing(target)
+    original_pred = postProcessing(pred)
+    print(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
+
     avg_ssim = calculate_ssim_batch(target,pred)
 
     print('SSIM: {:.4f}'.format(avg_ssim))
