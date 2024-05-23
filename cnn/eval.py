@@ -99,10 +99,9 @@ def main():
 
     with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
         pickle.dump({
-            'train_loss':[],
-            'val_loss':[],
-            'target':T,
-            'predictions':P
+            'history':{'train_loss':0.0,'val_loss':0.0},
+            'target':target,
+            'prediction':pred
         }, pickle_file)
 if __name__ == '__main__':
     main()

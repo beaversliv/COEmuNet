@@ -117,9 +117,14 @@ def main():
     pred, target, test_loss = trainer.test()
     print('Test Epoch: {} Loss: {:.4f}\n'.format(
                 config["epochs"], test_loss))
-    data = (tr_losses, vl_losses,pred, target)
+
+    ### save history and preds ###            
     with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
+        pickle.dump({
+            'history':{'train_loss':tr_losses,'val_loss':vl_losses},
+            'target':target,
+            'prediction':pred
+        }, pickle_file)
     original_target = postProcessing(target)
     original_pred = postProcessing(pred)
     print(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
@@ -127,10 +132,6 @@ def main():
     avg_ssim = calculate_ssim_batch(target,pred)
     for freq in range(len(avg_ssim)):
         print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
-
-    # plot and save history
-    # img_plt(target,pred,path='/home/dc-su2/physical_informed/cnn/original/results/img/')
-    # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/original/results/')
     torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_model.pth')
 
 
