@@ -120,8 +120,8 @@ def main():
     with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
         pickle.dump({
             'history':{'train_loss':tr_losses,'val_loss':vl_losses},
-            'target':target,
-            'prediction':pred
+            'targets':target,
+            'predictions':pred
         }, pickle_file)
     
     original_target = postProcessing(target)

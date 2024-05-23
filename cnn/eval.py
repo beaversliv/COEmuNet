@@ -78,8 +78,8 @@ def main():
     with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
         pickle.dump({
             'history':{'train_loss':0.0,'val_loss':0.0},
-            'target':target,
-            'prediction':pred
+            'targets':target,
+            'predictions':pred
         }, pickle_file)
     
     time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/freq31_runtime64.log',
