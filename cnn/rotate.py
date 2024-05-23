@@ -7,6 +7,7 @@ from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel  import Net3D,Net
 from utils.loss           import SobelMse,Lossfunction,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
+from utils.trainclass     import Trainer
 
 # helper packages
 import h5py as h5
@@ -72,76 +73,6 @@ def parse_args():
             ])
     
     return config
-### train step ###
-class Trainer:
-    def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
-        self.model = model
-        self.loss_object = loss_object
-        self.optimizer   = optimizer
-        self.train_dataloader = train_dataloader
-        self.test_dataloader  = test_dataloader
-        self.config = config
-        self.device = device
-    
-    def train(self):
-        total_loss = 0.
-        self.model.train()
-         
-        for bidx, samples in enumerate(self.train_dataloader):
-            data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
-            # memory_info = get_gpu_memory()
-            # print(f'GPU Memory usage after loading data in epoch 1 {memory_info}')
-            self.optimizer.zero_grad()
-            output = self.model(data)
-            
-            loss = self.loss_object(target, output)
-            # sys.exit()
-            loss.backward()
-            self.optimizer.step()
-            total_loss += loss.detach().cpu().numpy()
-            # memory_info = get_gpu_memory()
-            # print(f'GPU Memory usage after an iteration in epoch 1 {memory_info}')
-        epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
-        # memory_info = get_gpu_memory()
-        # print(f'GPU Memory usage after epoch 1 {memory_info}')
-        return epoch_loss
-
-    
-    def test(self):
-        self.model.eval()
-        P = []
-        T = []
-        L = []
-        for bidx, samples in enumerate(self.test_dataloader):
-            data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
-            pred = self.model(data)
-            loss = self.loss_object(target, pred)
-            
-            P.append(pred.detach().cpu().numpy())
-            T.append(target.detach().cpu().numpy())
-            L.append(loss.detach().cpu().numpy())
-        P = np.vstack(P)
-        T = np.vstack(T)
-        return P,T,np.mean(L)
-    def run(self):
-        tr_losses = []
-        vl_losses = []
-        for epoch in tqdm(range(self.config['epochs'])):
-            epoch_loss = self.train()
-
-            torch.cuda.empty_cache()  # Clear cache after training
-            
-            _, _, val_loss = self.test()
-            torch.cuda.empty_cache()  # Clear cache after evaluation
-            tr_losses.append(epoch_loss)
-            vl_losses.append(val_loss)
-            print('Train Epoch: {}/{} Loss: {:.4f}'.format(
-                    epoch, self.config['epochs'], epoch_loss))
-            print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
-                epoch, self.config["epochs"], val_loss))
-            
-        return tr_losses, vl_losses
-
 def main():
     config = parse_args()
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
