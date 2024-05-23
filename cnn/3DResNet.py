@@ -47,8 +47,8 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--epochs', type = int, default = 1000)
-    parser.add_argument('--batch_size', type = int, default = 64)
+    parser.add_argument('--epochs', type = int, default = 1200)
+    parser.add_argument('--batch_size', type = int, default = 128)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -119,12 +119,18 @@ def main():
                 config["epochs"], test_loss))
 
     ### save history and preds ###            
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
-        pickle.dump({
-            'history':{'train_loss':tr_losses,'val_loss':vl_losses},
-            'targets':target,
-            'predictions':pred
-        }, pickle_file)
+    pickle_file_path = "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl"
+    try:
+        with open(pickle_file_path, "wb") as pickle_file:
+            pickle.dump({
+                'history': {'train_loss': tr_losses, 'val_loss': vl_losses},
+                'targets': target,
+                'predictions': pred
+            }, pickle_file)
+        print(f"Data successfully saved to {pickle_file_path}")
+    except Exception as e:
+        print(f"Error saving data to pickle file: {e}")
+
     original_target = postProcessing(target)
     original_pred = postProcessing(pred)
     print(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
