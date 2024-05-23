@@ -8,6 +8,7 @@ from utils.ResNet3DModel  import Net3D,Net
 from utils.loss           import SobelMse,MaxRel, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt
 from utils.trainclass     import Trainer
+from utils.preprocessing  import preProcessing
 
 # helper packages
 import h5py as h5
@@ -97,7 +98,7 @@ def main():
 
     ## torch data loader ###
     train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size= 8, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size= config['batch_size'], shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
     model = Net().to(device) 
 
@@ -117,7 +118,7 @@ def main():
     print('Test Epoch: {} Loss: {:.4f}\n'.format(
                 config["epochs"], test_loss))
                 
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_history.pkl", "wb") as pickle_file:
         pickle.dump({
             'history':{'train_loss':tr_losses,'val_loss':vl_losses},
             'targets':target,
@@ -132,8 +133,6 @@ def main():
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_history.pkl", "wb") as pickle_file:
-        pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
     torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_model.pth')
