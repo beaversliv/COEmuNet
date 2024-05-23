@@ -15,11 +15,7 @@ import logging
 from utils.ResNet3DModel  import Net3D,Net
 from thop                   import profile
 from sklearn.model_selection      import train_test_split 
-import warnings
-
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", category=RuntimeWarning)
-    from utils.so3_model      import SO3Net
+import pickle
 
 def time_eval(log_file:str,test_dataloader,device,model_path:str,grid:int):
     logging.basicConfig(filename=log_file, level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -27,10 +23,6 @@ def time_eval(log_file:str,test_dataloader,device,model_path:str,grid:int):
     model = Net3D(freq=31).to(device)
     model.load_state_dict(torch.load(model_path,map_location=device))
     model.eval()
-
-    # P = []
-    # T = []
-    # L = []
     for bidx, samples in enumerate(test_dataloader):
         data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
         start = time.time()
@@ -38,21 +30,13 @@ def time_eval(log_file:str,test_dataloader,device,model_path:str,grid:int):
         end  = time.time()
         running_time = end - start
         logging.info(f'Running time: {running_time} seconds')
-        # loss = loss_object(target, pred)
-        
-    #     P.append(pred.detach().cpu().numpy())
-    #     T.append(target.detach().cpu().numpy())
-    #     L.append(loss.detach().cpu().numpy())
 
-    # P = np.vstack(P)
-    # T = np.vstack(T)
 def eval(test_dataloader,device,model_path:str):
-    odel = Net().to(device)
+    model = Net().to(device)
     model.load_state_dict(torch.load(model_path,map_location=device))
     model.eval()
     P = []
     T = []
-    L = []
     for bidx, samples in enumerate(test_dataloader):
         data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
         start = time.time()
@@ -64,11 +48,10 @@ def eval(test_dataloader,device,model_path:str):
         
         P.append(pred.detach().cpu().numpy())
         T.append(target.detach().cpu().numpy())
-        L.append(loss.detach().cpu().numpy())
 
     P = np.vstack(P)
     T = np.vstack(T)
-    return P,T
+    return T,P
 def main():
     # file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl'
     # custom_transform = CustomTransform(file_statistics)
@@ -81,7 +64,7 @@ def main():
 
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-
+    
     xte = torch.tensor(xte,dtype=torch.float32)
     yte = torch.tensor(yte,dtype=torch.float32)
     test_dataset = TensorDataset(xte, yte)
@@ -90,18 +73,19 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_model.pth'
-    P,T = eval(test_dataloader,device,model_dic)
-    # time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/freq31_runtime64.log',
-    #       test_dataloader=test_dataloader,
-    #       device=device,
-    #       model_path=model_dic,
-    #       grid=64)
-
+    target, pred = eval(test_dataloader,device,model_dic)
+    
     with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
         pickle.dump({
             'history':{'train_loss':0.0,'val_loss':0.0},
             'target':target,
             'prediction':pred
         }, pickle_file)
+    
+    time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/freq31_runtime64.log',
+          test_dataloader=test_dataloader,
+          device=device,
+          model_path=model_dic,
+          grid=64)
 if __name__ == '__main__':
     main()
