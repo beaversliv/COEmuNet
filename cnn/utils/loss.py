@@ -296,7 +296,7 @@ class SobelMse(nn.Module):
         return loss_combined
 
 class FreqMSE(nn.Module):
-    def __init__(self,alpha=0.6,beta=0.2):
+    def __init__(self,alpha=0.8,beta=0.2):
         super(FreqMSE, self).__init__()
         self.alpha     = alpha
         self.beta      = beta
