@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--epochs', type = int, default = 1000)
     parser.add_argument('--batch_size', type = int, default = 64)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -72,59 +72,6 @@ def parse_args():
             ])
     
     return config
-class preProcessing:
-    def __init__(self,path):
-        self.path = path
-
-    def outliers(self):
-        with h5.File(self.path,'r') as sample:
-            x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
-            y = np.array(sample['output'][:,:,:,15:16], np.float32)# shape(num_samples,64,64,1)
-        # take logrithm
-        y[y==0] = np.min(y[y!=0])
-        I = np.log(y)
-        # difference = max - min
-        max_values = np.max(I,axis=(1,2))
-        min_values = np.min(I,axis=(1,2))
-        diff = max_values - min_values
-        # find outliers
-        outlier_idx = np.where(diff>20)[0]
-
-        # remove outliers
-        removed_x = np.delete(x,outlier_idx,axis=0)
-        removed_y = np.delete(y,outlier_idx,axis=0)
-        return removed_x, removed_y
-
-    def get_data(self):
-        x,y = self.outliers()
-        meta = {}
-
-        x_t = np.transpose(x, (1, 0, 2, 3, 4))
-        for idx in [0]:
-            meta[idx] = {}
-            meta[idx]['mean'] = x_t[idx].mean()
-            meta[idx]['std'] = x_t[idx].std()
-            x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
-        
-        for idx in [1, 2]:
-            meta[idx] = {}
-            meta[idx]['min'] = np.min(x_t[idx])
-            meta[idx]['median'] = np.median(x_t[idx])
-            x_t[idx] = np.log(x_t[idx])
-            
-            x_t[idx] = x_t[idx] - np.min(x_t[idx])
-            x_t[idx] = x_t[idx]/np.median(x_t[idx])
-        
-        y[y == 0] = np.min(y[y != 0])
-        y = np.log(y)
-        
-        y = y-np.min(y)
-        y = y/np.median(y)
-        y = (y-np.min(y)) / (np.max(y)-np.min(y))
-        y = np.transpose(y,(0,3,1,2))
-        # y = y[:,np.newaxis,:,:,:]
-        return np.transpose(x_t, (1, 0, 2, 3, 4)), y
-
 ### train step ###
 class Trainer:
     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
@@ -197,9 +144,8 @@ class Trainer:
 
 def main():
     config = parse_args()
-    with h5.File('/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/random/clean_batches.hdf5','r') as sample:
-        x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
-        y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
+    x,y = data_gen.get_data()
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
 
@@ -240,11 +186,11 @@ def main():
 
     print('SSIM: {:.4f}'.format(avg_ssim))
     
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/random_history.pkl", "wb") as pickle_file:
+    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_history.pkl", "wb") as pickle_file:
         pickle.dump(data, pickle_file)
     # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
     # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
-    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/random_history.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_model.pth')
 
 if __name__ == '__main__':
     main()
