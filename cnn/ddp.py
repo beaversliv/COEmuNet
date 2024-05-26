@@ -6,9 +6,9 @@ from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import profile, record_function, ProfilerActivity
 
-# from utils.preprocessing  import preProcessing
+from utils.preprocessing  import preProcessing
 from utils.ResNet3DModel  import Net
-from utils.loss           import FreqMSE,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.oss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -62,9 +62,9 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'magritte')
-    parser.add_argument('--epochs', type = int, default = 200)
+    parser.add_argument('--epochs', type = int, default = 1200)
     parser.add_argument('--batch_size', type = int, default = 32) 
-    parser.add_argument('--lr', type = float, default = 1e-3)
+    parser.add_argument('--lr', type = float, default = 4*1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
 
@@ -82,61 +82,9 @@ def parse_args():
             ])
     
     return config
-class preProcessing:
-    def __init__(self,path):
-        self.path = path
-
-    def outliers(self):
-        with h5.File(self.path,'r') as sample:
-            x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
-            y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
-        # take logrithm
-        y[y==0] = np.min(y[y!=0])
-        I = np.log(y)
-        # difference = max - min
-        max_values = np.max(I,axis=(1,2))
-        min_values = np.min(I,axis=(1,2))
-        diff = max_values - min_values
-        # find outliers
-        outlier_idx = np.where(diff>20)[0]
-
-        # remove outliers
-        removed_x = np.delete(x,outlier_idx,axis=0)
-        removed_y = np.delete(y,outlier_idx,axis=0)
-        return removed_x, removed_y
-
-    def get_data(self):
-        x , y = self.outliers()
-        meta = {}
-
-        x_t = np.transpose(x, (1, 0, 2, 3, 4))
-        for idx in [0]:
-            meta[idx] = {}
-            meta[idx]['mean'] = x_t[idx].mean()
-            meta[idx]['std'] = x_t[idx].std()
-            x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
-        
-        for idx in [1, 2]:
-            meta[idx] = {}
-            meta[idx]['min'] = np.min(x_t[idx])
-            meta[idx]['median'] = np.median(x_t[idx])
-            x_t[idx] = np.log(x_t[idx])
-            
-            x_t[idx] = x_t[idx] - np.min(x_t[idx])
-            x_t[idx] = x_t[idx]/np.median(x_t[idx])
-        
-        y[y == 0] = np.min(y[y != 0])
-        y = np.log(y)
-        print(f'min:{np.min(y)},max {np.max(y)}')
-        y = (y - np.min(y))/(np.max(y)-np.min(y))
-        # print('min',np.min(y))
-        # y = y-np.min(y)
-        # print('median',np.median(y))
-        # y = y/np.median(y)
-        return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
 ### train step ###
 class Trainer:
-    def __init__(self,ddp_model,train_dataloader,test_dataloader,config,rank,world_size):
+    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size):
         self.ddp_model = ddp_model
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
@@ -145,8 +93,8 @@ class Trainer:
         self.rank   = rank # global rank, world_size -1, distinguish each process
         self.world_size = world_size # num GPUs
         # Define the optimizer for the DDP model
-        self.optimizer = torch.optim.Adam(ddp_model.parameters(), lr=self.config['lr'], betas=(0.9, 0.999))
-        self.loss_object = FreqMSE(alpha=0.8,beta=0.2)
+        self.optimizer = optimizer
+        self.loss_object = loss_object
                                        
     def train(self):
         total_loss = 0.
@@ -197,7 +145,7 @@ class Trainer:
             aggregated_epoch_loss = epoch_loss/self.world_size
 
             dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
-            aggregated_val_loss = epoch_loss / self.world_size
+            aggregated_val_loss = val_loss / self.world_size
 
             # Update history on master process
             if self.rank == 0:
@@ -221,7 +169,7 @@ class Trainer:
 
         # Aggregate test loss
         torch.distributed.all_reduce(test_loss, op=torch.distributed.ReduceOp.SUM)
-        aggregated_loss = test_loss / world_size
+        aggregated_loss = test_loss / self.world_size
         
 
         if self.rank == 0:
@@ -231,7 +179,8 @@ class Trainer:
             # Concatenate the gathered results
             all_preds = torch.cat(gathered_preds, dim=0).cpu().numpy()
             all_targets = torch.cat(gathered_targets, dim=0).cpu().numpy()
-            print(all_preds.shape, all_targets.shape)
+            
+            assert len(target) == len(pred), "Targets and predictions must have the same length"
             # Save the training history
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
@@ -254,62 +203,34 @@ class Trainer:
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)
     def postProcessing(self,y):
-        min_ , max_ = -103.27893, -28.09121
+        # rotate stats
+        # min_ , max_ = -103.27893, -28.09121
         # min_ = -50.24472
         # median = 11.025192
-        # y = y*median + min_
-        y = y * (max_ - min_) + min_
+        min_ = -47.387955
+        median = 8.168968
+        y = y*median + min_
+        # y = y * (max_ - min_) + min_
         y = np.exp(y)
         return y    
     def relativeLoss(self,original_target,original_pred):
         return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) * 100
     
-  
-def prepare(dataset,rank, world_size, batch_size, pin_memory=False, num_workers=0):
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=False)
-    
-    dataloader = DataLoader(dataset, batch_size, pin_memory=pin_memory, num_workers=num_workers, drop_last=False, shuffle=False, sampler=sampler)
-    
-    return dataloader
-def ddp_train(rank, world_size, train_dataset, test_dataset, config,gpus_per_node):
-    # Initialize any necessary components for DDP
-   
-    setup(rank, world_size)    
-    local_rank = rank - gpus_per_node * (rank // gpus_per_node)
-    torch.cuda.set_device(local_rank)
-    model = Net()
-    model = model.to(local_rank)
-    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
-   
-    train_dataloader = prepare(train_dataset, rank, world_size, config['batch_size'], pin_memory=True, num_workers=3)
-    test_dataloader = prepare(test_dataset,rank, world_size, config['batch_size'], pin_memory=True, num_workers=3)
-    # Create the Trainer instance
-    trainer = Trainer(ddp_model, train_dataloader, test_dataloader, config, rank, world_size)
-    
-    # Run the training and testing
-    history = trainer.run()
-    trainer.save(model_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/ddp_model.pth', 
-                 history_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/ddp_history.pkl',
-                 history = history,
-                 path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/', 
-                 world_size = world_size)
-   
-    # Clean up
-    cleanup()
-def main():
+def main(): 
     # Initialize any necessary components for DDP
     world_size    = int(os.environ.get("SLURM_NTASKS"))
     rank          = int(os.environ.get("SLURM_PROCID"))
     gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
+    num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
     print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
-   
+    setup(rank, world_size) 
     config = parse_args()
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/rotate_grid64_data0.hdf5')
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
     x,y = data_gen.get_data()
     
     # train test split
-    # xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
+    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
     xte = torch.tensor(xte,dtype=torch.float32)
@@ -318,11 +239,35 @@ def main():
     train_dataset = TensorDataset(xtr, ytr)
     test_dataset = TensorDataset(xte, yte)
 
-    ### start training ###
+    sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
+    train_dataloader = DataLoader(train_dataset, config['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=num_workers, shuffle=False)
+
+    local_rank = rank - gpus_per_node * (rank // gpus_per_node)
+    torch.cuda.set_device(local_rank)
+    model = Net()
+    model = model.to(local_rank)
+    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
+
+    # Define the optimizer for the DDP model
+    optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
+    loss_object = SobelMse(local_rank, alpha=0.8,beta=0.2)
+    # Create the Trainer instance
+    trainer = Trainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size)
+    
+    # Run the training and testing
+     ### start training ###
     start = time.time()
-    ddp_train(rank,world_size, train_dataset, test_dataset, config,gpus_per_node)
+    history = trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-
+    trainer.save(model_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_model.pth', 
+                 history_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_history.pkl',
+                 history = history,
+                 path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/', 
+                 world_size = world_size)
+   
+    # Clean up
+    cleanup()
 if __name__ == '__main__':
    main()

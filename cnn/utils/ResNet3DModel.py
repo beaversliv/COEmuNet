@@ -114,10 +114,10 @@ class Net(nn.Module):
             self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*4*4)
         elif model_grid == 64:
-            self.to_lat1 = nn.Linear(32*4*4*4*3,16*16*16)
-            self.to_lat2 = nn.Linear(16*16*16,16*16*16)
-            self.to_dec3 = nn.Linear(16*16*16,16*16*16)
-            self.to_dec4 = nn.Linear(16*16*16,64*8*8)
+            self.to_lat1 = nn.Linear(32*4*4*4*3,18*18*18)
+            # self.to_lat2 = nn.Linear(16*16*16,16*16*16)
+            # self.to_dec3 = nn.Linear(16*16*16,16*16*16)
+            self.to_dec4 = nn.Linear(18*18*18,64*8*8)
         elif model_grid == 128:
             self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*16*16)
@@ -137,11 +137,11 @@ class Net(nn.Module):
         x = torch.cat([x0, x1, x2], dim = -1)
  
         # (batch, 16*16*16)
-        x = nn.LeakyReLU(0.01)(self.to_lat1(x)) #dense layer
-        x = nn.LeakyReLU(0.01)(self.to_lat2(x))
+        x = nn.ReLU()(self.to_lat1(x)) #dense layer
+        # x = nn.LeakyReLU(0.02)(self.to_lat2(x))
 
-        x = nn.LeakyReLU(0.01)(self.to_dec3(x))
-        x = nn.LeakyReLU(0.01)(self.to_dec4(x)) # latent space
+        # x = nn.LeakyReLU(0.02)(self.to_dec3(x))
+        x = nn.ReLU()(self.to_dec4(x)) # latent space
         # grid 64
         if self.model_grid == 32:
             x = x.view(-1, 64, 4, 4)
