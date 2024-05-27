@@ -8,7 +8,8 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 from utils.preprocessing  import preProcessing
 from utils.ResNet3DModel  import Net
-from utils.oss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.earlystop      import EarlyStopping
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -84,7 +85,7 @@ def parse_args():
     return config
 ### train step ###
 class Trainer:
-    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size):
+    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size,early_stopping=True,model_path='checkpoint.pth'):
         self.ddp_model = ddp_model
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
@@ -95,6 +96,10 @@ class Trainer:
         # Define the optimizer for the DDP model
         self.optimizer = optimizer
         self.loss_object = loss_object
+        self.model_path = model_path
+        self.early_stopping = EarlyStopping(patience=7, verbose=True,path=model_path) if early_stopping else None
+        self.gathered_preds = None
+        self.gathered_targets = None
                                        
     def train(self):
         total_loss = 0.
@@ -154,43 +159,51 @@ class Trainer:
                 print(f'Train Epoch: {epoch}/{self.config["epochs"]} Loss: {aggregated_epoch_loss.cpu().item():.4f}')
                 print(f'Test Epoch: {epoch}/{self.config["epochs"]} Loss: {aggregated_val_loss.cpu().item():.4f}\n')
 
-        return history
- 
-    def save(self, model_path, history_path,history,path, world_size):
-        pred, target, test_loss = self.test()
+            if self.early_stopping:
+                self.early_stopping(val_loss, self.ddp_model, self.rank)
+                if self.early_stopping.early_stop:
+                    if self.rank == 0:
+                        print("Early stopping")
+                    break
+        # Load the last checkpoint with the best model
+        if self.rank == 0:
+            self.ddp_model.module.load_state_dict(torch.load(self.model_path))
+
+        # Broadcast the best model to all processes
         dist.barrier()
-        
+        torch.distributed.broadcast(torch.load(self.model_path), src=0)
+        self.ddp_model.module.load_state_dict(torch.load(self.model_path))
+
+        return history
+    def gather_predictions_targets(self, pred, target):
+        dist.barrier()
+
         # Gather predictions and targets from all GPUs
-        gathered_preds = [torch.zeros_like(pred) for _ in range(world_size)]
-        gathered_targets = [torch.zeros_like(target) for _ in range(world_size)]
+        gathered_preds = [torch.zeros_like(pred) for _ in range(self.world_size)]
+        gathered_targets = [torch.zeros_like(target) for _ in range(self.world_size)]
 
         torch.distributed.all_gather(gathered_preds, pred)
         torch.distributed.all_gather(gathered_targets, target)
 
+        return gathered_preds, gathered_targets
+    def eval(self):
+        pred, target, test_loss = self.test()
+        # Gather predictions and targets from all GPUs
+        gathered_preds, gathered_targets = self.gather_predictions_targets(pred, target)
+        self.gathered_preds = gathered_preds
+        self.gathered_targets = gathered_targets
+
         # Aggregate test loss
         torch.distributed.all_reduce(test_loss, op=torch.distributed.ReduceOp.SUM)
         aggregated_loss = test_loss / self.world_size
-        
 
         if self.rank == 0:
-            # Save only the model parameters
-            torch.save(self.ddp_model.module.state_dict(), model_path)
-            print('saved model!\n')
-            # Concatenate the gathered results
             all_preds = torch.cat(gathered_preds, dim=0).cpu().numpy()
             all_targets = torch.cat(gathered_targets, dim=0).cpu().numpy()
-            
-            assert len(target) == len(pred), "Targets and predictions must have the same length"
-            # Save the training history
-            with open(history_path, "wb") as pickle_file:
-                pickle.dump({
-                    "history": history,
-                    "predictions": all_preds,
-                    "targets": all_targets
-                }, pickle_file)
-            print(f'saved {history_path}!\n')
-            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], aggregated_loss.cpu().item()))
+            # Ensure targets and predictions have the same length
+            assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
 
+            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], aggregated_loss.cpu().item()))
             print('start post processing')
             original_target = self.postProcessing(all_targets)
             original_pred = self.postProcessing(all_preds)
@@ -200,8 +213,27 @@ class Trainer:
             for freq in range(len(avg_ssim)):
                 print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
 
+    def save(self,history_path,history,world_size):
+        gathered_preds = self.gathered_preds
+        gathered_targets = self.gathered_targets
+
+        if self.rank == 0:
+            # Concatenate the gathered results
+            all_preds = torch.cat(gathered_preds, dim=0).cpu().numpy()
+            all_targets = torch.cat(gathered_targets, dim=0).cpu().numpy()
+            
+            # Save the training history
+            with open(history_path, "wb") as pickle_file:
+                pickle.dump({
+                    "history": history,
+                    "predictions": all_preds,
+                    "targets": all_targets
+                }, pickle_file)
+            print(f'saved {history_path}!\n')
+
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)
+
     def postProcessing(self,y):
         # rotate stats
         # min_ , max_ = -103.27893, -28.09121
@@ -251,22 +283,22 @@ def main():
 
     # Define the optimizer for the DDP model
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    loss_object = SobelMse(local_rank, alpha=0.8,beta=0.2)
+    loss_object = SobelMse(local_rank, alpha=0.5,beta=0.5)
+    early_stopping = EarlyStopping(patience=7, verbose=True)
     # Create the Trainer instance
-    trainer = Trainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size)
+    model_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_model.pth'
+    trainer = Trainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,True,model_path)
     
     # Run the training and testing
-     ### start training ###
+    ### start training ###
     start = time.time()
     history = trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-    trainer.save(model_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_model.pth', 
-                 history_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_history.pkl',
+    trainer.eval()
+    trainer.save(history_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_history.pkl',
                  history = history,
-                 path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/', 
                  world_size = world_size)
-   
     # Clean up
     cleanup()
 if __name__ == '__main__':
