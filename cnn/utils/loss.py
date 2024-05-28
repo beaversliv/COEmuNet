@@ -285,9 +285,9 @@ class FreqMSE(nn.Module):
         loss_combined = self.alpha * loss_edge + self.beta * loss_mse 
         return loss_combined
 
-class FreqMAE(nn.Module):
-    def __init__(self,alpha=0.8,beta=0.2):
-        super(FreqMAE, self).__init__()
+class FreqMae(nn.Module):
+    def __init__(self,alpha=0.05,beta=0.95):
+        super(FreqMae, self).__init__()
         self.alpha     = alpha
         self.beta      = beta
 
@@ -303,7 +303,6 @@ class FreqMAE(nn.Module):
         loss_mae = nn.functional.l1_loss(pred, target)
         # Combine the losses
         loss_combined = self.alpha * loss_edge + self.beta * loss_mae 
-        print(f'freq {loss_edge}, MAE {loss_mae}')
         return loss_combined
 
 class RelativeLoss(nn.Module):
