@@ -285,6 +285,27 @@ class FreqMSE(nn.Module):
         loss_combined = self.alpha * loss_edge + self.beta * loss_mse 
         return loss_combined
 
+class FreqMAE(nn.Module):
+    def __init__(self,alpha=0.8,beta=0.2):
+        super(FreqMAE, self).__init__()
+        self.alpha     = alpha
+        self.beta      = beta
+
+    def calculate_freq_loss(self,target,pred):
+        target_freq = torch.fft.fft2(target)
+        pred_freq = torch.fft.fft2(pred)
+        return torch.mean(torch.abs(target_freq - pred_freq))
+
+    def forward(self, target,pred):
+        # Calculate the edge loss
+        loss_edge = self.calculate_freq_loss(target, pred)
+        # Calculate the MSE loss
+        loss_mae = nn.functional.l1_loss(pred, target)
+        # Combine the losses
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mae 
+        print(f'freq {loss_edge}, MAE {loss_mae}')
+        return loss_combined
+
 class RelativeLoss(nn.Module):
     def __init__(self):
         super(RelativeLoss, self).__init__()
@@ -336,6 +357,7 @@ class relativeLoss(nn.Module):
         val,_ = torch.max(target_reshaped + 1e-8, dim=1,keepdim=True)
         diff = torch.abs(target_reshaped-pred_reshaped) / val
         return (1-1e-9)*self.sobleMSE(target_reshaped,pred_reshaped), 1e-9*torch.mean(diff)
+
 def mean_absolute_percentage_error(true,pred):
     # Avoid division by zero
     true, pred = true + 1e-8, pred + 1e-8
