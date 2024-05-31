@@ -32,11 +32,13 @@ def time_eval(log_file:str,test_dataloader,device,model_path:str,grid:int):
         logging.info(f'Running time: {running_time} seconds')
 
 def eval(test_dataloader,device,model_path:str):
+    loss_object = SobelMse(device,0.8,0.2)
     model = Net().to(device)
     model.load_state_dict(torch.load(model_path,map_location=device))
     model.eval()
     P = []
     T = []
+    L = []
     for bidx, samples in enumerate(test_dataloader):
         data, target = Variable(samples[0]).to(device), Variable(samples[1]).to(device)
         start = time.time()
@@ -44,14 +46,25 @@ def eval(test_dataloader,device,model_path:str):
         end  = time.time()
         running_time = end - start
         logging.info(f'Running time: {running_time} seconds')
-        # loss = loss_object(target, pred)
+        loss = loss_object(target, pred)
         
         P.append(pred.detach().cpu().numpy())
         T.append(target.detach().cpu().numpy())
+        L.append(loss.detach().cpu().numpy())
 
     P = np.vstack(P)
     T = np.vstack(T)
-    return T,P
+    return T,P, np.mean(L)
+def postProcessing(y):
+    
+    min_ = -47.387955
+    median = 8.168968
+    y = y*median + min_
+    y = np.exp(y)
+    return y
+def relativeLoss(original_target,original_pred):
+        return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) * 100
+        return relative_loss
 def main():
     # file_statistics = '/home/dc-su2/physical_informed/cnn/rotate/12000_statistics.pkl'
     # custom_transform = CustomTransform(file_statistics)
@@ -68,24 +81,25 @@ def main():
     xte = torch.tensor(xte,dtype=torch.float32)
     yte = torch.tensor(yte,dtype=torch.float32)
     test_dataset = TensorDataset(xte, yte)
-    test_dataloader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=128, shuffle=False)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_model.pth'
-    target, pred = eval(test_dataloader,device,model_dic)
-    
-    with open("/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl", "wb") as pickle_file:
-        pickle.dump({
-            'history':{'train_loss':0.0,'val_loss':0.0},
-            'targets':target,
-            'predictions':pred
-        }, pickle_file)
-    
-    time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/freq31_runtime64.log',
-          test_dataloader=test_dataloader,
-          device=device,
-          model_path=model_dic,
-          grid=64)
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/model.pth'
+    target, pred,loss = eval(test_dataloader,device,model_dic)
+    print('test loss', loss)
+
+    original_target = postProcessing(target)
+    original_pred = postProcessing(pred)
+    print(f'relative loss {relativeLoss(original_target,original_pred):.5f}%')
+
+    avg_ssim = calculate_ssim_batch(target,pred)
+    for freq in range(len(avg_ssim)):
+        print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
+    # time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/freq31_runtime64.log',
+    #       test_dataloader=test_dataloader,
+    #       device=device,
+    #       model_path=model_dic,
+    #       grid=64)
 if __name__ == '__main__':
     main()
