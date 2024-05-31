@@ -79,7 +79,7 @@ class ddpTrainer:
         # Define the optimizer for the DDP model
         self.optimizer = optimizer
         self.loss_object = loss_object
-        logger = Logging('/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results', 'log_file0')
+        logger = Logging(config['save_path'], config['logfile'])
         self.logger = logger
                                        
     def train(self):
@@ -185,7 +185,7 @@ class ddpTrainer:
 
         return history
  
-    def save(self, model_path, history_path,history,path, world_size):
+    def save(self, model_path, history_path,history, world_size):
         pred, target, test_loss = self.test()
         dist.barrier()
         
