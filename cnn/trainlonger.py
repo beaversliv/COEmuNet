@@ -26,13 +26,37 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection      import train_test_split 
 import socket 
 
-# Global Constants
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 seed = 1234
 np.random.seed(seed)
 torch.manual_seed(seed) 
 torch.cuda.manual_seed(seed)
+def setup(rank, world_size):
+    "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
 
+    def get_free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            return s.getsockname()[1]
+
+    # Ensure MASTER_ADDR is set
+    if "MASTER_ADDR" not in os.environ:
+        raise ValueError("MASTER_ADDR environment variable is not set")
+    
+    # Set MASTER_PORT to a free port
+    if "MASTER_PORT" not in os.environ:
+        free_port = get_free_port()
+        os.environ["MASTER_PORT"] = str(free_port)
+    
+    # Ensure MASTER_PORT is set
+    if "MASTER_PORT" not in os.environ or os.environ["MASTER_PORT"] is None:
+        raise ValueError("MASTER_PORT environment variable is not set")
+
+    # Initialize the process group
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+def cleanup():
+    "Cleans up the distributed environment"
+    dist.destroy_process_group()
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
