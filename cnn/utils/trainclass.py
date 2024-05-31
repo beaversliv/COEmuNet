@@ -65,7 +65,34 @@ class Trainer:
                 epoch, self.config['epochs'], val_loss))
             
         return tr_losses, vl_losses
+class Logging:
+    def __init__(self, file_dir:str, file_name:str):
+        if not os.path.exists(file_dir):
+            os.mkdir(file_dir)
+        file_name = '{}.txt'.format(file_name)
+        self.log_file = os.path.join(file_dir, file_name)
 
+    def info(self, message, gpu_rank=0, console=True):
+        # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
+        if gpu_rank is None or gpu_rank == 0:
+            if console:
+                print(message)
+
+            with open(self.log_file, 'a') as f:  # a for append to the end of the file.
+                print(message, file=f)
+    def write_log_metrics(self, epoch, train_loss, val_loss, relative_loss, ssim_values, gpu_rank=0, console=True):
+        # Create a structured log entry
+        log_entry = {
+            'epoch': epoch,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+            'relative_loss': relative_loss,
+            'ssim': ssim_values
+        }
+        # Convert log entry to a JSON string
+        message = json.dumps(log_entry)
+        self.info(message, gpu_rank, console)
+        
 ### train step ###
 class ddpTrainer:
     def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size):
