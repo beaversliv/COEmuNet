@@ -64,7 +64,7 @@ def parse_args():
     parser.add_argument('--dataset', type = str, default = 'magritte')
     parser.add_argument('--epochs', type = int, default = 1000)
     parser.add_argument('--batch_size', type = int, default = 32) 
-    parser.add_argument('--lr', type = float, default = 4*1e-4)
+    parser.add_argument('--lr', type = float, default = 4*1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
 
@@ -122,7 +122,7 @@ class Trainer:
         # Define the optimizer for the DDP model
         self.optimizer = optimizer
         self.loss_object = loss_object
-        logger = Logging('/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results', 'log_file')
+        logger = Logging('/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results', 'log_file0')
         self.logger = logger
                                        
     def train(self):
@@ -312,7 +312,7 @@ def main():
 
     # Define the optimizer for the DDP model
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    oss_object = FreqMae(alpha=0.1,beta=0.9)
+    loss_object = FreqMae(alpha=0.2,beta=0.8)
     # Create the Trainer instance
     trainer = Trainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size)
     
@@ -326,7 +326,6 @@ def main():
     trainer.save(model_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_model.pth', 
                  history_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_history.pkl',
                  history = history,
-                 path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/', 
                  world_size = world_size)
    
     # Clean up
