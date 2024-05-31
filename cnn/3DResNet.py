@@ -47,10 +47,10 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--epochs', type = int, default = 1000)
+    parser.add_argument('--epochs', type = int, default = 100)
     parser.add_argument('--batch_size', type = int, default = 128)
     parser.add_argument('--lr', type = float, default = 1e-3)
-    parser.add_argument('--lr_decay', type = float, default = 0.95)
+    parser.add_argument('--lr_decay', type = float, default = 1e-4)
 
 
     args = parser.parse_args()
@@ -101,8 +101,8 @@ def main():
     ### set a model ###
     model = Net().to(device)
     
-    loss_object = SobelMse(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
+    loss_object = SobelMse(device,0.8,0.2)
+    optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999),weight_decay=config['lr_decay'])
 
 
     ### start training ###
@@ -119,7 +119,7 @@ def main():
                 config["epochs"], test_loss))
 
     ### save history and preds ###            
-    pickle_file_path = "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_history.pkl"
+    pickle_file_path = "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/history.pkl"
     try:
         with open(pickle_file_path, "wb") as pickle_file:
             pickle.dump({
@@ -138,7 +138,7 @@ def main():
     avg_ssim = calculate_ssim_batch(target,pred)
     for freq in range(len(avg_ssim)):
         print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
-    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/test_model.pth')
+    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/model.pth')
 
 
 if __name__ == '__main__':
