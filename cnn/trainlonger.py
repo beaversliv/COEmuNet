@@ -62,9 +62,9 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results')
-    parser.add_argument('--logfile',type = str, default = 'log_file')
-    parser.add_argument('--epochs', type = int, default = 2)
+    parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/')
+    parser.add_argument('--logfile',type = str, default = 'trainLonger_log_file')
+    parser.add_argument('--epochs', type = int, default = 3000)
     parser.add_argument('--batch_size', type = int, default = 128)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 1e-4)
@@ -95,10 +95,10 @@ def main():
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
     setup(rank, world_size) 
     config = parse_args()
-    # data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
-    # x,y = data_gen.get_data()
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
+    x,y = data_gen.get_data()
     # train test split
-    x,y = np.random.rand(100,3,64,64,64),np.random.rand(100,1,64,64)
+    # x,y = np.random.rand(100,3,64,64,64),np.random.rand(100,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
@@ -117,13 +117,14 @@ def main():
     ### set a model ###
     model = Net(64)
     model = model.to(local_rank)
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/model.pth'
-    model.load_state_dict(torch.load(model_dic,map_location=local_rank))
+    model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/model.pth'
+    map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    model.load_state_dict(torch.load(model_dict, map_location=map_location))
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    loss_object = SobleMse(local_rank, alpha=0.8,beta=0.2)
+    loss_object = SobelMse(local_rank, alpha=0.8,beta=0.2)
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size)
     
@@ -134,8 +135,8 @@ def main():
     history = trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-    trainer.save(model_path = config['save_path'] + 'ddp_model.pth', 
-                 history_path = config['save_path'] + 'ddp_history.pkl',
+    trainer.save(model_path = config['save_path'] + 'trainLonger_model.pth', 
+                 history_path = config['save_path'] + 'trainLonger_history.pkl',
                  history = history,
                  world_size = world_size)
    
