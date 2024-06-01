@@ -5,7 +5,7 @@ from torch.autograd   import Variable
 
 from utils.ResNet3DModel  import Net
 from utils.dataloader     import CustomTransform,IntensityDataset
-from utils.loss           import SobelMse
+from utils.loss           import SobelMse,calculate_ssim_batch
 from utils.preprocessing  import preProcessing
 
 import time
@@ -85,7 +85,7 @@ def main():
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/model.pth'
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/ddp_model.pth'
     target, pred,loss = eval(test_dataloader,device,model_dic)
     print('test loss', loss)
 

@@ -35,10 +35,13 @@ def parse_args():
     parser.add_argument('--path_dir', type = str, default = os.getcwd())
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--epochs', type = int, default = 10)
+    parser.add_argument('--model_grid',type=int,default= 64,help='grid of hydro model:[32,64,128]')
+    parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/')
+    parser.add_argument('--logfile',type = str, default = 'fineTune_log_file')
+    parser.add_argument('--epochs', type = int, default = 100)
     parser.add_argument('--batch_size', type = int, default = 128)
     parser.add_argument('--lr', type = float, default = 1e-3)
-    parser.add_argument('--lr_decay', type = float, default = 1e-4)
+    parser.add_argument('--lr_decay', type = float, default = 0.95)
 
 
     args = parser.parse_args()
@@ -46,8 +49,10 @@ def parse_args():
     config = OrderedDict([
             ('path_dir', args.path_dir),
             ('model_name', args.model_name),
-            
             ('dataset', args.dataset),
+            ('model_grid', args.model_grid),
+            ('save_path',args.save_path),
+            ('logfile',args.logfile),
             ('epochs', args.epochs),
             ('batch_size', args.batch_size),
             ('lr', args.lr),
@@ -64,10 +69,10 @@ def postProcessing(y):
     return y
 def main():
     config = parse_args()
-    # data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
-    # x,y = data_gen.get_data()
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
+    x,y = data_gen.get_data()
     # train test split
-    x,y = np.random.rand(100,3,64,64,64),np.random.rand(100,1,64,64)
+    # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
@@ -85,14 +90,14 @@ def main():
 
     ### set a model ###
     model = FinetuneNet()
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/model.pth'
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_model.pth'
     checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
     model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
     model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
     model.to(device)
 
     loss_object = SobelMse(device,0.8,0.2)
-    optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999),weight_decay=config['lr_decay'])
+    optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
 
 
     ### start training ###
@@ -102,3 +107,5 @@ def main():
     tr_losses, vl_losses = trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
+if __name__ == '__main__':
+    main()
