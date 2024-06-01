@@ -1,10 +1,46 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+import torch.multiprocessing as mp
+import torch.distributed as dist
 from torch.autograd import Variable
+from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.profiler import profile, record_function, ProfilerActivity
+
+from .loss                 import calculate_ssim_batch,MaxRel
 from tqdm                 import tqdm
 import numpy as np
+import os
+import json
+import pickle
+import logging
+class Logging:
+    def __init__(self, file_dir:str, file_name:str):
+        if not os.path.exists(file_dir):
+            os.mkdir(file_dir)
+        file_name = '{}.txt'.format(file_name)
+        self.log_file = os.path.join(file_dir, file_name)
 
+    def info(self, message, gpu_rank=0, console=True):
+        # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
+        if gpu_rank is None or gpu_rank == 0:
+            if console:
+                print(message)
+
+            with open(self.log_file, 'a') as f:  # a for append to the end of the file.
+                print(message, file=f)
+    def write_log_metrics(self, epoch, train_loss, val_loss, relative_loss, ssim_values, gpu_rank=0, console=True):
+        # Create a structured log entry
+        log_entry = {
+            'epoch': epoch,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+            'relative_loss': relative_loss,
+            'ssim': ssim_values
+        }
+        # Convert log entry to a JSON string
+        message = json.dumps(log_entry)
+        self.info(message, gpu_rank, console)
 class Trainer:
     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
         self.model = model
@@ -14,6 +50,8 @@ class Trainer:
         self.test_dataloader  = test_dataloader
         self.config = config
         self.device = device
+        logger = Logging(config['save_path'], config['logfile'])
+        self.logger = logger
     
     def train(self):
         total_loss = 0.
@@ -49,50 +87,60 @@ class Trainer:
         T = np.vstack(T)
         return P,T,np.mean(L)
     def run(self):
-        tr_losses = []
-        vl_losses = []
+        history = {'train_loss': [], 'val_loss': []} 
         for epoch in tqdm(range(self.config['epochs'])):
             epoch_loss = self.train()
             torch.cuda.empty_cache()  # Clear cache after training
             
-            _, _, val_loss = self.test()
+            t, p, val_loss = self.test()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            tr_losses.append(epoch_loss)
-            vl_losses.append(val_loss)
-            print('Train Epoch: {}/{} Loss: {:.4f}'.format(
-                    epoch, self.config['epochs'], epoch_loss))
-            print('Test Epoch: {}/{} Loss: {:.4f}\n'.format(
-                epoch, self.config['epochs'], val_loss))
-            
-        return tr_losses, vl_losses
-class Logging:
-    def __init__(self, file_dir:str, file_name:str):
-        if not os.path.exists(file_dir):
-            os.mkdir(file_dir)
-        file_name = '{}.txt'.format(file_name)
-        self.log_file = os.path.join(file_dir, file_name)
+            history['train_loss'].append(epoch_loss.cpu.item())
+            history['val_loss'].append(val_loss.cpu.item())
+            self.log_metrics(epoch, epoch_loss, val_loss, p, t)
+        return history
+    def log_metrics(self, epoch, epoch_loss, val_loss, preds, targets):
+        original_targets = self.postProcessing(targets)   
+        original_preds   = self.postProcessing(preds)  
+        relative_loss = MaxRel(original_targets,original_preds)
+        avg_ssim = calculate_ssim_batch(all_targets, all_preds)
+        self.logger.write_log_metrics(
+            epoch = epoch,
+            train_loss = epoch_loss.cpu().item(),
+            val_loss = val_loss.cpu().item(),
+            relative_loss = relative_loss,
+            ssim_values = avg_ssim)
+    def save(self,model_path,history_path,history):
+        pred, target, test_loss = self.test()
+        torch.save(self.ddp_model.module.state_dict(), model_path)
+        print('saved model!\n')
+        assert len(target) == len(pred), "Targets and predictions must have the same length"
+        # Save the training history
+        try:
+            with open(history_path, "wb") as pickle_file:
+                pickle.dump({
+                    "history": history,
+                    "predictions": all_preds,
+                    "targets": all_targets
+                }, pickle_file)
+            print(f"Data successfully saved to {history_path}")
+        except Exception as e:
+            print(f"Error saving data to pickle file: {e}")
+        print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
+        original_target = self.postProcessing(target)
+        original_pred = self.postProcessing(pred)
+        print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
 
-    def info(self, message, gpu_rank=0, console=True):
-        # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
-        if gpu_rank is None or gpu_rank == 0:
-            if console:
-                print(message)
+        avg_ssim = calculate_ssim_batch(target,pred)
+        for freq in range(len(avg_ssim)):
+            print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
 
-            with open(self.log_file, 'a') as f:  # a for append to the end of the file.
-                print(message, file=f)
-    def write_log_metrics(self, epoch, train_loss, val_loss, relative_loss, ssim_values, gpu_rank=0, console=True):
-        # Create a structured log entry
-        log_entry = {
-            'epoch': epoch,
-            'train_loss': train_loss,
-            'val_loss': val_loss,
-            'relative_loss': relative_loss,
-            'ssim': ssim_values
-        }
-        # Convert log entry to a JSON string
-        message = json.dumps(log_entry)
-        self.info(message, gpu_rank, console)
-        
+    def postProcessing(self,y):
+        min_ = -47.387955
+        median = 8.168968
+        y = y*median + min_
+        y = np.exp(y)
+        return y 
+
 ### train step ###
 class ddpTrainer:
     def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size):
