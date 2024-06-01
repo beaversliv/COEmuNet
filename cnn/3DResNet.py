@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--model_grid',type=int,default= 64,help='grid of hydro model:[32,64,128]')
     parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/')
     parser.add_argument('--logfile',type = str, default = 'log_file')
-    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--epochs', type = int, default = 1)
     parser.add_argument('--batch_size', type = int, default = 64)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)

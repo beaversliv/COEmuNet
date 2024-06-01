@@ -11,6 +11,7 @@ from .loss                 import calculate_ssim_batch,MaxRel
 from tqdm                 import tqdm
 import numpy as np
 import os
+import sys
 import json
 import pickle
 import logging
@@ -64,7 +65,7 @@ class Trainer:
             loss = self.loss_object(target, output)
             loss.backward()
             self.optimizer.step()
-            total_loss += loss.detach().cpu().numpy()
+            total_loss += loss.detach()
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
 
         return epoch_loss
@@ -74,7 +75,7 @@ class Trainer:
         self.model.eval()
         P = []
         T = []
-        L = []
+        total_loss = 0.
         for bidx, samples in enumerate(self.test_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             pred = self.model(data)
@@ -82,36 +83,40 @@ class Trainer:
             
             P.append(pred.detach().cpu().numpy())
             T.append(target.detach().cpu().numpy())
-            L.append(loss.detach().cpu().numpy())
+            total_loss += loss.detach()
+        val_loss = total_loss / len(self.test_dataloader)
         P = np.vstack(P)
         T = np.vstack(T)
-        return P,T,np.mean(L)
+        return P,T,val_loss
     def run(self):
         history = {'train_loss': [], 'val_loss': []} 
         for epoch in tqdm(range(self.config['epochs'])):
             epoch_loss = self.train()
+            epoch_loss = epoch_loss.cpu().item()
             torch.cuda.empty_cache()  # Clear cache after training
             
             t, p, val_loss = self.test()
+            val_loss = val_loss.cpu().item()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            history['train_loss'].append(epoch_loss.cpu.item())
-            history['val_loss'].append(val_loss.cpu.item())
+            
+            history['train_loss'].append(epoch_loss)
+            history['val_loss'].append(val_loss)
             self.log_metrics(epoch, epoch_loss, val_loss, p, t)
         return history
     def log_metrics(self, epoch, epoch_loss, val_loss, preds, targets):
         original_targets = self.postProcessing(targets)   
         original_preds   = self.postProcessing(preds)  
         relative_loss = MaxRel(original_targets,original_preds)
-        avg_ssim = calculate_ssim_batch(all_targets, all_preds)
+        avg_ssim = calculate_ssim_batch(targets, preds)
         self.logger.write_log_metrics(
             epoch = epoch,
-            train_loss = epoch_loss.cpu().item(),
-            val_loss = val_loss.cpu().item(),
+            train_loss = epoch_loss,
+            val_loss = val_loss,
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
     def save(self,model_path,history_path,history):
         pred, target, test_loss = self.test()
-        torch.save(self.ddp_model.module.state_dict(), model_path)
+        torch.save(self.model.state_dict(), model_path)
         print('saved model!\n')
         assert len(target) == len(pred), "Targets and predictions must have the same length"
         # Save the training history
@@ -119,8 +124,8 @@ class Trainer:
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
                     "history": history,
-                    "predictions": all_preds,
-                    "targets": all_targets
+                    "predictions": pred,
+                    "targets": target
                 }, pickle_file)
             print(f"Data successfully saved to {history_path}")
         except Exception as e:
@@ -128,7 +133,7 @@ class Trainer:
         print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
         original_target = self.postProcessing(target)
         original_pred = self.postProcessing(pred)
-        print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+        print(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
 
         avg_ssim = calculate_ssim_batch(target,pred)
         for freq in range(len(avg_ssim)):
