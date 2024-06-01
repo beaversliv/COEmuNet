@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--model_grid',type=int,default= 64,help='grid of hydro model:[32,64,128]')
     parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/')
     parser.add_argument('--logfile',type = str, default = 'log_file')
-    parser.add_argument('--epochs', type = int, default = 1)
+    parser.add_argument('--epochs', type = int, default = 100)
     parser.add_argument('--batch_size', type = int, default = 64)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -82,9 +82,9 @@ def postProcessing(y):
 
 def main():
     config = parse_args()
-    # data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
-    # x,y = data_gen.get_data()
-    x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
+    x,y = data_gen.get_data()
+    # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
