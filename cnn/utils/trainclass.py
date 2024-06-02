@@ -19,11 +19,8 @@ class Logging:
     def __init__(self, file_dir:str, file_name:str):
         if not os.path.exists(file_dir):
             os.mkdir(file_dir)
-        slurm_job_id = os.environ.get('SLURM_JOB_ID', 'job')
-        
-        # Include SLURM job ID in the log file name
-        file_name = '{}_{}.txt'.format(file_name, slurm_job_id)
         self.log_file = os.path.join(file_dir, file_name)
+        open(self.log_file, 'w').close()
     def info(self, message, gpu_rank=0, console=True):
         # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
         if gpu_rank is None or gpu_rank == 0:
