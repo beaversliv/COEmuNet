@@ -5,7 +5,7 @@ from torch.autograd import Variable
 # custom helper functions
 from utils.dataloader     import CustomTransform,IntensityDataset
 from utils.ResNet3DModel          import Net
-from utils.loss           import SobelMse,MaxRel, calculate_ssim_batch
+from utils.loss           import SobelMse
 from utils.plot           import img_plt,history_plt
 from utils.preprocessing  import preProcessing
 from utils.trainclass     import Trainer
@@ -48,9 +48,10 @@ def parse_args():
     parser.add_argument('--model_name', type = str, default = '3dResNet')
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
     parser.add_argument('--model_grid',type=int,default= 64,help='grid of hydro model:[32,64,128]')
-    parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/')
+    parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/')
     parser.add_argument('--logfile',type = str, default = 'log_file')
-    parser.add_argument('--epochs', type = int, default = 100)
+    parser.add_argument('--patience',type = int, default = 20, help='early stop patience')
+    parser.add_argument('--epochs', type = int, default = 1000)
     parser.add_argument('--batch_size', type = int, default = 64)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
@@ -65,6 +66,7 @@ def parse_args():
             ('model_grid', args.model_grid),
             ('save_path',args.save_path),
             ('logfile',args.logfile),
+            ('patience',args.patience),
             ('epochs', args.epochs),
             ('batch_size', args.batch_size),
             ('lr', args.lr),
