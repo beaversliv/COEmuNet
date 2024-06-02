@@ -134,14 +134,11 @@ class Trainer:
             ssim_values = avg_ssim)
     def save(self,model_path,history_path,history):
         pred, target, test_loss,maxrel = self.test()
-        torch.save(self.model.state_dict(), model_path)
-        print('saved model!\n')
         assert len(target) == len(pred), "Targets and predictions must have the same length"
         # Save the training history
         try:
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
-                    "history": history,
                     "predictions": pred,
                     "targets": target
                 }, pickle_file)
@@ -213,7 +210,7 @@ class ddpTrainer:
         L = torch.stack(L)
         return P,T,torch.mean(L)
     def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_val_loss, all_preds, all_targets):
-       
+        best_loss = float('inf')
         # Ensure targets and predictions have the same length
         assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
         
@@ -229,8 +226,19 @@ class ddpTrainer:
             val_loss = aggregated_val_loss.cpu().item(),
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
-        if avg_ssim[0] > 0.98:
-            return True # Indicate that training should stop
+        # if avg_ssim[0] > 0.98:
+        #     return True # Indicate that training should stop
+        # else:
+        #     return False
+        if relative_loss < best_loss:
+            best_loss = relative_loss
+            patience_counter = 0
+            torch.save(self.ddp_model.module.state_dict(), self.config['save_path']+self.config['model_name'])
+        else:
+            patience_counter += 1
+        if patience_counter >= self.config['patience']:
+            print("Early stopping triggered")
+            return True
         else:
             return False
     def gather_predictions_targets(self, pred, target):
@@ -248,7 +256,6 @@ class ddpTrainer:
 
         return all_preds, all_targets
     def run(self):
-        history = {'train_loss': [], 'val_loss': []} 
         stop_signal = torch.tensor([0], device=self.rank)
         for epoch in tqdm(range(self.config['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss = self.train()
@@ -266,10 +273,6 @@ class ddpTrainer:
             gathered_preds, gathered_targets = self.gather_predictions_targets(pred, target)
             # Update history on master process
             if self.rank == 0:
-                history['train_loss'].append(aggregated_epoch_loss.cpu().item())
-                history['val_loss'].append(aggregated_val_loss.cpu().item())
-                # print(f'Train Epoch: {epoch}/{self.config["epochs"]} Loss: {aggregated_epoch_loss.cpu().item():.4f}')
-                # print(f'Test Epoch: {epoch}/{self.config["epochs"]} Loss: {aggregated_val_loss.cpu().item():.4f}\n')
                 stop_training = self.log_metrics(epoch, aggregated_epoch_loss, aggregated_val_loss, gathered_preds, gathered_targets)
                 if stop_training:
                     stop_signal[0] = 1  # Set stop signal
@@ -278,10 +281,8 @@ class ddpTrainer:
             dist.broadcast(stop_signal, src=0)
             if stop_signal[0].item() == 1:
                 break
-
-        return history
  
-    def save(self, model_path, history_path,history, world_size):
+    def save(self, history_path, world_size):
         pred, target, test_loss = self.test()
         dist.barrier()
         
@@ -292,15 +293,10 @@ class ddpTrainer:
         aggregated_loss = test_loss / self.world_size
 
         if self.rank == 0:
-            # Save only the model parameters
-            torch.save(self.ddp_model.module.state_dict(), model_path)
-            print('saved model!\n')
-       
             assert len(target) == len(pred), "Targets and predictions must have the same length"
             # Save the training history
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
-                    "history": history,
                     "predictions": all_preds,
                     "targets": all_targets
                 }, pickle_file)
