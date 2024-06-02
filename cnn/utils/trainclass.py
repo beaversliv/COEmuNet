@@ -89,21 +89,37 @@ class Trainer:
         val_loss = total_loss / len(self.test_dataloader)
         P = np.vstack(P)
         T = np.vstack(T)
-        return P,T,val_loss
+
+        original_targets = self.postProcessing(P)   
+        original_preds   = self.postProcessing(T)  
+        maxrel = MaxRel(original_targets,original_preds)
+        return P,T,val_loss,maxrel
     def run(self):
+        best_loss = float('inf')
+        patience_counter = 0
         history = {'train_loss': [], 'val_loss': []} 
         for epoch in tqdm(range(self.config['epochs'])):
             epoch_loss = self.train()
             epoch_loss = epoch_loss.cpu().item()
             torch.cuda.empty_cache()  # Clear cache after training
             
-            t, p, val_loss = self.test()
+            t, p, val_loss,maxrel = self.test()
             val_loss = val_loss.cpu().item()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            
             history['train_loss'].append(epoch_loss)
             history['val_loss'].append(val_loss)
             self.log_metrics(epoch, epoch_loss, val_loss, p, t)
+
+            if maxrel < best_loss:
+                best_loss = maxrel
+                patience_counter = 0
+                torch.save(self.model.state_dict(), self.config['save_path']+'best_model.pth')
+            else:
+                patience_counter += 1
+
+            if patience_counter >= self.config['patience']:
+                print("Early stopping triggered")
+                break
         return history
     def log_metrics(self, epoch, epoch_loss, val_loss, preds, targets):
         original_targets = self.postProcessing(targets)   
@@ -117,7 +133,7 @@ class Trainer:
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
     def save(self,model_path,history_path,history):
-        pred, target, test_loss = self.test()
+        pred, target, test_loss,maxrel = self.test()
         torch.save(self.model.state_dict(), model_path)
         print('saved model!\n')
         assert len(target) == len(pred), "Targets and predictions must have the same length"
@@ -133,9 +149,7 @@ class Trainer:
         except Exception as e:
             print(f"Error saving data to pickle file: {e}")
         print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
-        original_target = self.postProcessing(target)
-        original_pred = self.postProcessing(pred)
-        print(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
+        print(f'relative loss {maxrel:.5f}%')
 
         avg_ssim = calculate_ssim_batch(target,pred)
         for freq in range(len(avg_ssim)):
