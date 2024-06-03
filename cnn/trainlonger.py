@@ -63,11 +63,11 @@ def parse_args():
     parser.add_argument('--dataset', type = str, default = 'p3droslo')
     parser.add_argument('--model_grid',type=int,default= 64,help='grid of hydro model:[32,64,128]')
     parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/')
-    parser.add_argument('--logfile',type = str, default = 'log_file')
+    parser.add_argument('--logfile',type = str, default = 'trainlonger_log_file')
     parser.add_argument('--model_name', type = str, default = 'trainlonger.pth')
-    parser.add_argument('--patience',type = int, default = 20, help='early stop patience')
+    parser.add_argument('--patience',type = int, default = 100, help='early stop patience')
     parser.add_argument('--epochs', type = int, default = 5000)
-    parser.add_argument('--batch_size', type = int, default = 64)
+    parser.add_argument('--batch_size', type = int, default = 128)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
 
@@ -122,9 +122,9 @@ def main():
     ### set a model ###
     model = Net(64)
     model = model.to(local_rank)
-    model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/model100.pth'
-    map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    model.load_state_dict(torch.load(model_dict, map_location=map_location))
+    # model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/model100.pth'
+    # map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    # model.load_state_dict(torch.load(model_dict, map_location=map_location))
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
