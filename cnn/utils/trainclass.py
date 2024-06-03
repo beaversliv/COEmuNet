@@ -110,13 +110,13 @@ class Trainer:
             if maxrel < best_loss:
                 best_loss = maxrel
                 patience_counter = 0
-                torch.save(self.model.state_dict(), self.config['save_path']+'best_model.pth')
+                torch.save(self.model.state_dict(), self.config['save_path']+self.config['model_name'])
             else:
                 patience_counter += 1
 
-            if patience_counter >= self.config['patience']:
-                print("Early stopping triggered")
-                break
+            # if patience_counter >= self.config['patience']:
+            #     print("Early stopping triggered")
+            #     break
         return history
     def log_metrics(self, epoch, epoch_loss, val_loss, preds, targets):
         original_targets = self.postProcessing(targets)   
@@ -129,7 +129,9 @@ class Trainer:
             val_loss = val_loss,
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
+        
     def save(self,model_path,history_path,history):
+        self.model.load_state_dict(torch.load(self.config['save_path']+self.config['model_name']))
         pred, target, test_loss,maxrel = self.test()
         assert len(target) == len(pred), "Targets and predictions must have the same length"
         # Save the training history
@@ -208,6 +210,7 @@ class ddpTrainer:
         return P,T,torch.mean(L)
     def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_val_loss, all_preds, all_targets):
         best_loss = float('inf')
+        patience_counter = 0
         # Ensure targets and predictions have the same length
         assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
         

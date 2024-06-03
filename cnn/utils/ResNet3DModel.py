@@ -193,8 +193,8 @@ class Net(nn.Module):
         x = torch.cat([x0, x1, x2], dim = -1)
  
         # (batch, 16*16*16)
-        x = self.to_lat1(x) #dense layer
-        x = nn.ReLU()(self.to_dec3(x)) # latent space
+        x_latent = self.to_lat1(x) #dense layer
+        x = nn.ReLU()(self.to_dec3(x_latent)) # latent space
         # grid 64
         if self.model_grid == 32:
             x = x.view(-1, 64, 4, 4)
