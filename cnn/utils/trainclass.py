@@ -20,6 +20,7 @@ class Logging:
         if not os.path.exists(file_dir):
             os.mkdir(file_dir)
         self.log_file = os.path.join(file_dir, file_name)
+        print(f'create {log_file}')
         open(self.log_file, 'w').close()
     def info(self, message, gpu_rank=0, console=True):
         # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
@@ -94,7 +95,7 @@ class Trainer:
     def run(self):
         best_loss = float('inf')
         patience_counter = 0
-        history = {'train_loss': [], 'val_loss': []} 
+        
         for epoch in tqdm(range(self.config['epochs'])):
             epoch_loss = self.train()
             epoch_loss = epoch_loss.cpu().item()
@@ -103,8 +104,6 @@ class Trainer:
             t, p, val_loss,maxrel = self.test()
             val_loss = val_loss.cpu().item()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            history['train_loss'].append(epoch_loss)
-            history['val_loss'].append(val_loss)
             self.log_metrics(epoch, epoch_loss, val_loss, p, t)
 
             if maxrel < best_loss:
@@ -117,7 +116,7 @@ class Trainer:
             # if patience_counter >= self.config['patience']:
             #     print("Early stopping triggered")
             #     break
-        return history
+
     def log_metrics(self, epoch, epoch_loss, val_loss, preds, targets):
         original_targets = self.postProcessing(targets)   
         original_preds   = self.postProcessing(preds)  
@@ -130,7 +129,7 @@ class Trainer:
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
         
-    def save(self,model_path,history_path,history):
+    def save(self,history_path):
         self.model.load_state_dict(torch.load(self.config['save_path']+self.config['model_name']))
         pred, target, test_loss,maxrel = self.test()
         assert len(target) == len(pred), "Targets and predictions must have the same length"
@@ -208,22 +207,21 @@ class ddpTrainer:
         T = torch.cat(T,dim=0)
         L = torch.stack(L)
         return P,T,torch.mean(L)
-    def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_val_loss, all_preds, all_targets):
+    def log_metrics(self, epoch, aggregated_epoch_loss, val_loss, preds, argets):
         best_loss = float('inf')
         patience_counter = 0
         # Ensure targets and predictions have the same length
         assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
-        
-        original_target = self.postProcessing(all_targets)
-        original_pred = self.postProcessing(all_preds)
+        original_target = self.postProcessing(targets)
+        original_pred = self.postProcessing(preds)
         relative_loss = self.relativeLoss(original_target, original_pred)
         
-        avg_ssim = calculate_ssim_batch(all_targets, all_preds)
+        avg_ssim = calculate_ssim_batch(targets, preds)
 
         self.logger.write_log_metrics(
             epoch = epoch,
             train_loss = aggregated_epoch_loss.cpu().item(),
-            val_loss = aggregated_val_loss.cpu().item(),
+            val_loss = val_loss.cpu().item(),
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
         # if avg_ssim[0] > 0.98:
@@ -241,39 +239,15 @@ class ddpTrainer:
             return True
         else:
             return False
-    def gather_predictions_targets(self, pred, target):
-        dist.barrier()
-
-        # Gather predictions and targets from all GPUs
-        gathered_preds = [torch.zeros_like(pred) for _ in range(self.world_size)]
-        gathered_targets = [torch.zeros_like(target) for _ in range(self.world_size)]
-
-        torch.distributed.all_gather(gathered_preds, pred)
-        torch.distributed.all_gather(gathered_targets, target)
-
-        all_preds = torch.cat(gathered_preds, dim=0).cpu().numpy()
-        all_targets = torch.cat(gathered_targets, dim=0).cpu().numpy()
-
-        return all_preds, all_targets
     def run(self):
         stop_signal = torch.tensor([0], device=self.rank)
         for epoch in tqdm(range(self.config['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss = self.train()
             torch.cuda.empty_cache()  # Clear cache after training
-            
-            pred, target, val_loss = self.test()
-            torch.cuda.empty_cache()  # Clear cache after evaluation
-
-            # Aggregate losses
-            dist.all_reduce(epoch_loss, op=torch.distributed.ReduceOp.SUM)
-            aggregated_epoch_loss = epoch_loss/self.world_size
-
-            dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
-            aggregated_val_loss = val_loss / self.world_size
-            gathered_preds, gathered_targets = self.gather_predictions_targets(pred, target)
             # Update history on master process
             if self.rank == 0:
-                stop_training = self.log_metrics(epoch, aggregated_epoch_loss, aggregated_val_loss, gathered_preds, gathered_targets)
+                pred, target, val_loss = self.test()
+                stop_training = self.log_metrics(epoch, aggregated_epoch_loss, val_loss, pred, target)
                 if stop_training:
                     stop_signal[0] = 1  # Set stop signal
 
@@ -283,30 +257,23 @@ class ddpTrainer:
                 break
  
     def save(self, history_path, world_size):
-        pred, target, test_loss = self.test()
-        dist.barrier()
-        
-        all_preds, all_targets = self.gather_predictions_targets(pred, target)
-
-        # Aggregate test loss
-        torch.distributed.all_reduce(test_loss, op=torch.distributed.ReduceOp.SUM)
-        aggregated_loss = test_loss / self.world_size
-
         if self.rank == 0:
+            self.ddp_model.load_state_dict(torch.load(self.config['save_path']+self.config['model_name']))
+            pred, target, test_loss = self.test()
             assert len(target) == len(pred), "Targets and predictions must have the same length"
             # Save the training history
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
-                    "predictions": all_preds,
-                    "targets": all_targets
+                    "predictions": pred,
+                    "targets": target
                 }, pickle_file)
             print(f'saved {history_path}!\n')
-            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], aggregated_loss.cpu().item()))
-            original_target = self.postProcessing(all_targets)
-            original_pred = self.postProcessing(all_preds)
+            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
+            original_target = self.postProcessing(target)
+            original_pred = self.postProcessing(pred)
             print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
 
-            avg_ssim = calculate_ssim_batch(all_targets,all_preds)
+            avg_ssim = calculate_ssim_batch(target,pred)
             for freq in range(len(avg_ssim)):
                 print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
 
