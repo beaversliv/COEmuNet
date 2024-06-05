@@ -265,40 +265,16 @@ class SobelMse(nn.Module):
         loss_combined = self.alpha * loss_edge + self.beta * loss_mse
         return loss_combined
 
-class FreqMSE(nn.Module):
-    def __init__(self,alpha=0.8,beta=0.2):
-        super(FreqMSE, self).__init__()
+class SobelMae(nn.Module):
+    def __init__(self,device,alpha=0.05,beta=0.95):
+        super(SobelMae, self).__init__()
+        self.edge_loss = SobelLoss().to(device)
         self.alpha     = alpha
         self.beta      = beta
 
-    def calculate_freq_loss(self,target,pred):
-        target_freq = torch.fft.fft2(target)
-        pred_freq = torch.fft.fft2(pred)
-        return torch.mean(torch.abs(target_freq - pred_freq))
-
     def forward(self, target,pred):
         # Calculate the edge loss
-        loss_edge = self.calculate_freq_loss(target, pred)
-        # Calculate the MSE loss
-        loss_mse = nn.functional.mse_loss(pred, target)
-        # Combine the losses
-        loss_combined = self.alpha * loss_edge + self.beta * loss_mse 
-        return loss_combined
-
-class FreqMae(nn.Module):
-    def __init__(self,alpha=0.05,beta=0.95):
-        super(FreqMae, self).__init__()
-        self.alpha     = alpha
-        self.beta      = beta
-
-    def calculate_freq_loss(self,target,pred):
-        target_freq = torch.fft.fft2(target)
-        pred_freq = torch.fft.fft2(pred)
-        return torch.mean(torch.abs(target_freq - pred_freq))
-
-    def forward(self, target,pred):
-        # Calculate the edge loss
-        loss_edge = self.calculate_freq_loss(target, pred)
+        loss_edge = self.edge_loss(pred, target)
         # Calculate the MSE loss
         loss_mae = nn.functional.l1_loss(pred, target)
         # Combine the losses
