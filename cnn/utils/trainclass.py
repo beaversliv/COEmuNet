@@ -20,7 +20,7 @@ class Logging:
         if not os.path.exists(file_dir):
             os.mkdir(file_dir)
         self.log_file = os.path.join(file_dir, file_name)
-        print(f'create {log_file}')
+        print(f'create {self.log_file}')
         open(self.log_file, 'w').close()
     def info(self, message, gpu_rank=0, console=True):
         # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
@@ -159,7 +159,7 @@ class Trainer:
 
 ### train step ###
 class ddpTrainer:
-    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size):
+    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,scheduler,loss_object,config,rank,world_size):
         self.ddp_model = ddp_model
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
@@ -169,6 +169,7 @@ class ddpTrainer:
         self.world_size = world_size # num GPUs
         # Define the optimizer for the DDP model
         self.optimizer = optimizer
+        self.scheduler = scheduler
         self.loss_object = loss_object
         logger = Logging(config['save_path'], config['logfile'])
         self.logger = logger
@@ -195,87 +196,118 @@ class ddpTrainer:
         P = []
         T = []
         L = []
-        for bidx, samples in enumerate(self.test_dataloader):
-            data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
-            pred = self.ddp_model(data)
-            loss = self.loss_object(target, pred)
-            
-            P.append(pred.detach())
-            T.append(target.detach())
-            L.append(loss.detach())
+        with torch.no_grad():
+            for bidx, samples in enumerate(self.test_dataloader):
+                data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
+                pred = self.ddp_model(data)
+                loss = self.loss_object(target, pred)
+                
+                P.append(pred.detach())
+                T.append(target.detach())
+                L.append(loss.detach())
         P = torch.cat(P, dim=0)
         T = torch.cat(T,dim=0)
         L = torch.stack(L)
         return P,T,torch.mean(L)
-    def log_metrics(self, epoch, aggregated_epoch_loss, val_loss, preds, argets):
-        best_loss = float('inf')
-        patience_counter = 0
-        # Ensure targets and predictions have the same length
-        assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
-        original_target = self.postProcessing(targets)
-        original_pred = self.postProcessing(preds)
-        relative_loss = self.relativeLoss(original_target, original_pred)
-        
-        avg_ssim = calculate_ssim_batch(targets, preds)
-
-        self.logger.write_log_metrics(
-            epoch = epoch,
-            train_loss = aggregated_epoch_loss.cpu().item(),
-            val_loss = val_loss.cpu().item(),
-            relative_loss = relative_loss,
-            ssim_values = avg_ssim)
-        # if avg_ssim[0] > 0.98:
-        #     return True # Indicate that training should stop
-        # else:
-        #     return False
-        if relative_loss < best_loss:
-            best_loss = relative_loss
-            patience_counter = 0
-            torch.save(self.ddp_model.module.state_dict(), self.config['save_path']+self.config['model_name'])
-        else:
-            patience_counter += 1
-        if patience_counter >= self.config['patience']:
-            print("Early stopping triggered")
-            return True
-        else:
-            return False
     def run(self):
         stop_signal = torch.tensor([0], device=self.rank)
         for epoch in tqdm(range(self.config['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss = self.train()
-            torch.cuda.empty_cache()  # Clear cache after training
-            # Update history on master process
+            torch.cuda.empty_cache()  # Clear cache after training            
+            # Aggregate losses
+            dist.all_reduce(epoch_loss, op=torch.distributed.ReduceOp.SUM)
+            aggregated_epoch_loss = epoch_loss/self.world_size
+
+            # # Update history on master process
             if self.rank == 0:
                 pred, target, val_loss = self.test()
-                stop_training = self.log_metrics(epoch, aggregated_epoch_loss, val_loss, pred, target)
-                if stop_training:
-                    stop_signal[0] = 1  # Set stop signal
+                self.log_metrics(epoch, aggregated_epoch_loss, val_loss, pred, target)
+            self.scheduler.step()
+            #     if stop_training:
+            #         stop_signal[0] = 1  # Set stop signal
 
-            # Broadcast the stop signal to all processes
-            dist.broadcast(stop_signal, src=0)
-            if stop_signal[0].item() == 1:
-                break
- 
+            # # Broadcast the stop signal to all processes
+            # dist.broadcast(stop_signal, src=0)
+            # if stop_signal[0].item() == 1:
+            #     break
+
+    def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_val_loss, all_preds, all_targets):
+        best_loss = float('inf')
+        patience_counter = 0
+        # Ensure targets and predictions have the same length
+        assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
+        all_targets = all_targets.cpu().numpy()
+        all_preds   = all_preds.cpu().numpy()
+        original_target = self.postProcessing(all_targets)
+        original_pred = self.postProcessing(all_preds)
+        relative_loss = self.relativeLoss(original_target, original_pred)
+        
+        avg_ssim = calculate_ssim_batch(all_targets, all_preds)
+
+        self.logger.write_log_metrics(
+            epoch = epoch,
+            train_loss = aggregated_epoch_loss.cpu().item(),
+            val_loss = aggregated_val_loss.cpu().item(),
+            relative_loss = relative_loss,
+            ssim_values = avg_ssim)
+        # # if avg_ssim[0] > 0.98:
+        # #     return True # Indicate that training should stop
+        # # else:
+        # #     return False
+        if relative_loss < best_loss:
+            best_loss = relative_loss
+            patience_counter = 0
+            torch.save(self.ddp_model.state_dict(), self.config['save_path']+self.config['model_name'])
+        else:
+            patience_counter += 1
+        # if patience_counter >= self.config['patience']:
+        #     print("Early stopping triggered")
+        #     return True
+        # else:
+        #     return False
+    def eval(self):
+        dist.barrier()
+        if self.rank == 0:
+            self.ddp_model.eval()
+            P = []
+            T = []
+            with torch.no_grad():
+                for bidx, samples in enumerate(self.test_dataloader):
+                    data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
+                    pred = self.ddp_model(data)
+                    P.append(pred.detach().cpu().numpy())
+                    T.append(target.detach().cpu().numpy())
+            P = np.vstack(P)
+            T = np.vstack(T)
+            original_target = self.postProcessing(P)
+            original_pred = self.postProcessing(T)
+            print(f'initial relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+
     def save(self, history_path, world_size):
         if self.rank == 0:
-            self.ddp_model.load_state_dict(torch.load(self.config['save_path']+self.config['model_name']))
-            pred, target, test_loss = self.test()
-            assert len(target) == len(pred), "Targets and predictions must have the same length"
-            # Save the training history
-            with open(history_path, "wb") as pickle_file:
-                pickle.dump({
-                    "predictions": pred,
-                    "targets": target
-                }, pickle_file)
-            print(f'saved {history_path}!\n')
-            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
-            original_target = self.postProcessing(target)
-            original_pred = self.postProcessing(pred)
-            print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+            map_location = {'cuda:%d' % 0: 'cuda:%d' % self.rank}
+            self.ddp_model.load_state_dict(
+                            torch.load(self.config['save_path']+self.config['model_name'], map_location=map_location))
+            all_preds, all_targets, test_loss = self.test()
+            all_targets = all_targets.cpu().numpy()
+            all_preds   = all_preds.cpu().numpy()
+            if self.rank == 0:
+                assert len(all_preds) == len(all_preds), "Targets and predictions must have the same length"
+                # Save the training history
+                with open(history_path, "wb") as pickle_file:
+                    pickle.dump({
+                        "predictions": all_preds,
+                        "targets": all_targets
+                    }, pickle_file)
+                print(f'saved {history_path}!\n')
+                print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
+                original_target = self.postProcessing(all_targets)
+                original_pred = self.postProcessing(all_preds)
+                print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
 
-            avg_ssim = calculate_ssim_batch(target,pred)
-            for freq in range(len(avg_ssim)):
-                print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
+                avg_ssim = calculate_ssim_batch(all_targets,all_preds)
+                for freq in range(len(avg_ssim)):
+                    print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
 
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)
