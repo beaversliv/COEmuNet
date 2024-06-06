@@ -15,12 +15,12 @@ import sys
 import json
 import pickle
 import logging
+
 class Logging:
     def __init__(self, file_dir:str, file_name:str):
         if not os.path.exists(file_dir):
             os.mkdir(file_dir)
         self.log_file = os.path.join(file_dir, file_name)
-        print(f'create {self.log_file}')
         open(self.log_file, 'w').close()
     def info(self, message, gpu_rank=0, console=True):
         # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
@@ -69,7 +69,6 @@ class Trainer:
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
 
         return epoch_loss
-
     
     def test(self):
         self.model.eval()
@@ -95,7 +94,7 @@ class Trainer:
     def run(self):
         best_loss = float('inf')
         patience_counter = 0
-        
+        history = {'train_loss': [], 'val_loss': []} 
         for epoch in tqdm(range(self.config['epochs'])):
             epoch_loss = self.train()
             epoch_loss = epoch_loss.cpu().item()
@@ -104,19 +103,22 @@ class Trainer:
             t, p, val_loss,maxrel = self.test()
             val_loss = val_loss.cpu().item()
             torch.cuda.empty_cache()  # Clear cache after evaluation
+            history['train_loss'].append(epoch_loss)
+            history['val_loss'].append(val_loss)
             self.log_metrics(epoch, epoch_loss, val_loss, p, t)
 
             if maxrel < best_loss:
                 best_loss = maxrel
                 patience_counter = 0
-                torch.save(self.model.state_dict(), self.config['save_path']+self.config['model_name'])
+                model_path = os.path.join(self.config['save_path'], self.config['model_name'])
+                torch.save(self.model.state_dict(), model_path)
             else:
                 patience_counter += 1
 
             # if patience_counter >= self.config['patience']:
             #     print("Early stopping triggered")
             #     break
-
+        return history
     def log_metrics(self, epoch, epoch_loss, val_loss, preds, targets):
         original_targets = self.postProcessing(targets)   
         original_preds   = self.postProcessing(preds)  
@@ -129,20 +131,23 @@ class Trainer:
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
         
-    def save(self,history_path):
-        self.model.load_state_dict(torch.load(self.config['save_path']+self.config['model_name']))
+    def save(self,save_hist=True):
+        model_path = os.path.join(self.config['save_path'], self.config['model_name'])
+        self.model.load_state_dict(torch.load(model_path))
         pred, target, test_loss,maxrel = self.test()
         assert len(target) == len(pred), "Targets and predictions must have the same length"
         # Save the training history
-        try:
-            with open(history_path, "wb") as pickle_file:
-                pickle.dump({
-                    "predictions": pred,
-                    "targets": target
-                }, pickle_file)
-            print(f"Data successfully saved to {history_path}")
-        except Exception as e:
-            print(f"Error saving data to pickle file: {e}")
+        if save_hist:
+            try:
+                history_path = os.path.join(self.config['save_path'],self.config['history'])
+                with open(history_path, "wb") as pickle_file:
+                    pickle.dump({
+                        "predictions": pred,
+                        "targets": target
+                    }, pickle_file)
+                print(f"Data successfully saved to {history_path}")
+            except Exception as e:
+                print(f"Error saving data to pickle file: {e}")
         print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
         print(f'relative loss {maxrel:.5f}%')
 
@@ -156,10 +161,9 @@ class Trainer:
         y = y*median + min_
         y = np.exp(y)
         return y 
-
 ### train step ###
 class ddpTrainer:
-    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,scheduler,loss_object,config,rank,world_size):
+    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size,scheduler=None):
         self.ddp_model = ddp_model
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
@@ -171,6 +175,7 @@ class ddpTrainer:
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.loss_object = loss_object
+        self.model_path = None
         logger = Logging(config['save_path'], config['logfile'])
         self.logger = logger
                                        
@@ -222,7 +227,8 @@ class ddpTrainer:
             if self.rank == 0:
                 pred, target, val_loss = self.test()
                 self.log_metrics(epoch, aggregated_epoch_loss, val_loss, pred, target)
-            self.scheduler.step()
+            if self.scheduler:
+                self.scheduler.step()
             #     if stop_training:
             #         stop_signal[0] = 1  # Set stop signal
 
@@ -250,14 +256,12 @@ class ddpTrainer:
             val_loss = aggregated_val_loss.cpu().item(),
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
-        # # if avg_ssim[0] > 0.98:
-        # #     return True # Indicate that training should stop
-        # # else:
-        # #     return False
+ 
         if relative_loss < best_loss:
             best_loss = relative_loss
             patience_counter = 0
-            torch.save(self.ddp_model.state_dict(), self.config['save_path']+self.config['model_name'])
+            self.model_path = os.path.join(self.config['save_path'], self.config['model_name'])
+            torch.save(self.ddp_model.state_dict(), model_path)
         else:
             patience_counter += 1
         # if patience_counter >= self.config['patience']:
@@ -287,7 +291,7 @@ class ddpTrainer:
         if self.rank == 0:
             map_location = {'cuda:%d' % 0: 'cuda:%d' % self.rank}
             self.ddp_model.load_state_dict(
-                            torch.load(self.config['save_path']+self.config['model_name'], map_location=map_location))
+                            torch.load(self.model_path, map_location=map_location))
             all_preds, all_targets, test_loss = self.test()
             all_targets = all_targets.cpu().numpy()
             all_preds   = all_preds.cpu().numpy()
