@@ -175,7 +175,6 @@ class ddpTrainer:
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.loss_object = loss_object
-        self.model_path = None
         logger = Logging(config['save_path'], config['logfile'])
         self.logger = logger
                                        
@@ -260,7 +259,7 @@ class ddpTrainer:
         if relative_loss < best_loss:
             best_loss = relative_loss
             patience_counter = 0
-            self.model_path = os.path.join(self.config['save_path'], self.config['model_name'])
+            model_path = os.path.join(self.config['save_path'], self.config['model_name'])
             torch.save(self.ddp_model.state_dict(), model_path)
         else:
             patience_counter += 1
@@ -287,23 +286,26 @@ class ddpTrainer:
             original_pred = self.postProcessing(T)
             print(f'initial relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
 
-    def save(self, history_path, world_size):
+    def save(self, save_hist=True):
         if self.rank == 0:
             map_location = {'cuda:%d' % 0: 'cuda:%d' % self.rank}
+            model_path = os.path.join(self.config['save_path'], self.config['model_name'])
             self.ddp_model.load_state_dict(
-                            torch.load(self.model_path, map_location=map_location))
+                            torch.load(model_path, map_location=map_location))
             all_preds, all_targets, test_loss = self.test()
             all_targets = all_targets.cpu().numpy()
             all_preds   = all_preds.cpu().numpy()
             if self.rank == 0:
                 assert len(all_preds) == len(all_preds), "Targets and predictions must have the same length"
                 # Save the training history
-                with open(history_path, "wb") as pickle_file:
-                    pickle.dump({
-                        "predictions": all_preds,
-                        "targets": all_targets
-                    }, pickle_file)
-                print(f'saved {history_path}!\n')
+                if save_hist:
+                    history_path = os.path.join(self.config['save_path'],self.config['history'])
+                    with open(history_path, "wb") as pickle_file:
+                        pickle.dump({
+                            "predictions": all_preds,
+                            "targets": all_targets
+                        }, pickle_file)
+                    print(f'saved {history_path}!\n')
                 print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
                 original_target = self.postProcessing(all_targets)
                 original_pred = self.postProcessing(all_preds)
