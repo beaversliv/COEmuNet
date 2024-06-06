@@ -70,7 +70,7 @@ def main():
     trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-    trainer.save(True)
+    trainer.save(False)
    
 if __name__ == '__main__':
     main()
