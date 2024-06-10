@@ -177,6 +177,8 @@ class ddpTrainer:
         self.loss_object = loss_object
         logger = Logging(config['save_path'], config['logfile'])
         self.logger = logger
+        self.best_loss = float('inf')
+        self.patience_counter = 0
                                        
     def train(self):
         total_loss = 0.
@@ -237,8 +239,6 @@ class ddpTrainer:
             #     break
 
     def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_val_loss, all_preds, all_targets):
-        best_loss = float('inf')
-        patience_counter = 0
         # Ensure targets and predictions have the same length
         assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
         all_targets = all_targets.cpu().numpy()
@@ -256,13 +256,13 @@ class ddpTrainer:
             relative_loss = relative_loss,
             ssim_values = avg_ssim)
  
-        if relative_loss < best_loss:
-            best_loss = relative_loss
+        if relative_loss < self.best_loss:
+            self.best_loss = relative_loss
             patience_counter = 0
             model_path = os.path.join(self.config['save_path'], self.config['model_name'])
             torch.save(self.ddp_model.state_dict(), model_path)
         else:
-            patience_counter += 1
+            self.patience_counter += 1
         # if patience_counter >= self.config['patience']:
         #     print("Early stopping triggered")
         #     return True
