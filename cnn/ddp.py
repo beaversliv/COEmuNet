@@ -99,8 +99,8 @@ def main():
 
     # Define the optimizer for the DDP model
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    cheduler = StepLR(optimizer, step_size=100, gamma=0.1)
-    loss_object = SobelMse(local_rank, alpha=0.8,beta=0.2)
+    cheduler = StepLR(optimizer, step_size=50, gamma=0.2)
+    loss_object = SobelMse(local_rank, alpha=config['alpha'],beta=config['beta'])
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
     
