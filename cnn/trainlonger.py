@@ -27,10 +27,6 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection      import train_test_split 
 import socket 
 
-seed = 1234
-np.random.seed(seed)
-torch.manual_seed(seed) 
-torch.cuda.manual_seed(seed)
 # torch.backends.cudnn.deterministic = True
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
@@ -76,10 +72,10 @@ def main():
     torch.manual_seed(config['seed'])
     torch.cuda.manual_seed_all(config['seed'])
 
-    # data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
-    # x,y = data_gen.get_data()
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
+    x,y = data_gen.get_data()
     # train test split
-    x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
+    # x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
@@ -105,10 +101,10 @@ def main():
 
     # Define the optimizer for the DDP model
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    scheduler = StepLR(optimizer, step_size=100, gamma=0.1)
-    loss_object = SobelMse(local_rank, alpha=0.8,beta=0.2)
+    scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
+    loss_object = SobelMse(local_rank, alpha=config['alpha'],beta=config['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=scheduler)
     
     # Run the training and testing
     ### start training ###
