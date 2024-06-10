@@ -105,6 +105,7 @@ class Decoder(nn.Module):
 class Latent(nn.Module):
     def __init__(self,input_dim,model_grid=64):
         super(Latent,self).__init__()
+        self.layers =  nn.ModuleList()
         if model_grid == 32:
             out_dim = 64 * 4 * 4
         elif model_grid == 64:
@@ -112,12 +113,16 @@ class Latent(nn.Module):
         elif model_grid == 128:
             out_dim = 64 * 16 * 16
 
-        self.fc1 = nn.Linear(input_dim, 16*16*16)
-        self.fc2 = nn.Linear(16*16*16, out_dim)
+        self.layers.append(nn.Linear(input_dim, input_dim*2))
+        self.layers.append(nn.ReLU())
+        self.layers.append(nn.Linear(input_dim*2, 16**3))
+        self.layers.append(nn.ReLU())
+        self.layers.append(nn.Linear(16**3, out_dim))
+        self.layers.append(nn.ReLU())
 
     def forward(self, x):
-        x = nn.functional.relu(self.fc1(x))
-        x = nn.functional.relu(self.fc2(x))
+        for layer in self.layers:
+            x = layer(x)
         return x
 
 class FinetuneNet(nn.Module):
