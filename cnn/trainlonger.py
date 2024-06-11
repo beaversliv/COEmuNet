@@ -116,7 +116,7 @@ def main():
     trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-    trainer.save(False)
+    trainer.save(True)
    
     # Clean up
     cleanup()
