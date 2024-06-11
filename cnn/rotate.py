@@ -1,88 +1,73 @@
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-from torch.autograd import Variable
-# custom helper functions
-from utils.dataloader     import CustomTransform,IntensityDataset
-from utils.ResNet3DModel  import Net3D,Net
-from utils.loss           import SobelMse,MaxRel, calculate_ssim_batch
-from utils.plot           import img_plt,history_plt
-from utils.trainclass     import Trainer
+import torch.multiprocessing  as mp
+import torch.distributed      as dist
+from torch.autograd           import Variable
+from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler
+from torch.nn.parallel        import DistributedDataParallel as DDP
+from torch.profiler           import profile, record_function, ProfilerActivity
+from torch.optim.lr_scheduler import StepLR
 from utils.preprocessing  import preProcessing
+from utils.ResNet3DModel  import Net
+from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.trainclass     import ddpTrainer
+from utils.config         import parse_args
+# from utils.plot           import img_plt
 
-# helper packages
 import h5py as h5
 import numpy as np
+from tqdm import tqdm
 import os
 import sys
+import json
 import time
-import logging
-from tqdm                 import tqdm
 import pickle
 import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 from sklearn.model_selection      import train_test_split 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-seed = 1234
-np.random.seed(seed)
-torch.manual_seed(seed) 
-torch.cuda.manual_seed(seed)
-# Check if a GPU is available
-if torch.cuda.is_available():
-    # Print the number of available GPUs
-    num_gpus = torch.cuda.device_count()
-    print(f"Number of available GPUs: {num_gpus}")
-    # Get the name of the current GPU (if there is more than one)
-    current_gpu = torch.cuda.current_device()
-    print(f"Name of the current GPU: {torch.cuda.get_device_name(current_gpu)}")
-else:
-    print("No GPU available, using CPU.")
+import socket                     
+def setup(rank, world_size):
+    "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
 
-# import logging
+    def get_free_port():
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            return s.getsockname()[1]
 
-# logging.basicConfig(filename='/home/s/ss1421/Documents/physical_informed_surrogate_model/cnn/rotate/training.log', 
-#                     level=logging.INFO, 
-#                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#                     datefmt='%Y-%m-%d %H:%M:%S')
-# logger = logging.getLogger(__name__)
-
-# Global Constants
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--path_dir', type = str, default = os.getcwd())
-    parser.add_argument('--model_name', type = str, default = '3dResNet')
-    parser.add_argument('--dataset', type = str, default = 'p3droslo')
-    parser.add_argument('--epochs', type = int, default = 1)
-    parser.add_argument('--batch_size', type = int, default = 128)
-    parser.add_argument('--lr', type = float, default = 1e-3)
-    parser.add_argument('--lr_decay', type = float, default = 0.95)
-
-
-    args = parser.parse_args()
+    # Ensure MASTER_ADDR is set
+    if "MASTER_ADDR" not in os.environ:
+        raise ValueError("MASTER_ADDR environment variable is not set")
     
-    config = OrderedDict([
-            ('path_dir', args.path_dir),
-            ('model_name', args.model_name),
-            
-            ('dataset', args.dataset),
-            ('epochs', args.epochs),
-            ('batch_size', args.batch_size),
-            ('lr', args.lr),
-            ('lr_decay', args.lr_decay)
-            ])
+    # Set MASTER_PORT to a free port
+    if "MASTER_PORT" not in os.environ:
+        free_port = get_free_port()
+        os.environ["MASTER_PORT"] = str(free_port)
     
-    return config
-def postProcessing(y):
-    
-    min_ = -50.24472
-    median = 11.025192
-    y = y*median + min_
-    y = np.exp(y)
-    return y
-def main():
+    # Ensure MASTER_PORT is set
+    if "MASTER_PORT" not in os.environ or os.environ["MASTER_PORT"] is None:
+        raise ValueError("MASTER_PORT environment variable is not set")
+
+    # Initialize the process group
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+def cleanup():
+    "Cleans up the distributed environment"
+    dist.destroy_process_group()
+def main(): 
+    # Initialize any necessary components for DDP
+    world_size    = int(os.environ.get("SLURM_NTASKS"))
+    rank          = int(os.environ.get("SLURM_PROCID"))
+    gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
+    num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
+    print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
+          f" {gpus_per_node} allocated GPUs per node.", flush=True)
+    setup(rank, world_size)
+
     config = parse_args()
+    np.random.seed(config['seed'])
+    torch.manual_seed(config['seed'])
+    torch.cuda.manual_seed_all(config['seed'])
+
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
     x,y = data_gen.get_data()
     # train test split
@@ -95,54 +80,42 @@ def main():
     train_dataset = TensorDataset(xtr, ytr)
     test_dataset = TensorDataset(xte, yte)
 
-    ## torch data loader ###
-    train_dataloader = DataLoader(train_dataset, batch_size= config['batch_size'], shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size= config['batch_size'], shuffle=False)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-    model = Net().to(device) 
+    sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
+    train_dataloader = DataLoader(train_dataset, config['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=num_workers, shuffle=False)
 
-    loss_object = SobelMse(device,alpha=0.8,beta=0.2)
-    optimizer = torch.optim.Adam(model.parameters(), lr = config['lr'], betas=(0.9, 0.999))
+    local_rank = rank - gpus_per_node * (rank // gpus_per_node)
+    torch.cuda.set_device(local_rank)
 
+    model = Net(config['model_grid'])
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
+    checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
+    model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
+    model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
+
+    # model = Net(config['model_grid'])
+    model = model.to(local_rank)
+    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
+
+    # Define the optimizer for the DDP model
+    optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
+    cheduler = StepLR(optimizer, step_size=50, gamma=0.2)
+    loss_object = SobelMse(local_rank, alpha=config['alpha'],beta=config['beta'])
+    # Create the Trainer instance
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
+    
+    # Run the training and testing
     ### start training ###
+    trainer.eval()
+
     start = time.time()
-    # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
-    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
-    tr_losses, vl_losses = trainer.run()
+    print(f'rank {rank} starts training\n')
+    trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-    
-    ### validation ###
-    pred, target, test_loss = trainer.test()
-    print(pred.shape, target.shape)
-    print(len(tr_losses),len(vl_losses))
-    
-    print('Test Epoch: {} Loss: {:.4f}\n'.format(
-                config["epochs"], test_loss))
-
-    pickle_file_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_history.pkl'
-    try:
-        with open(pickle_file_path, "wb") as pickle_file:
-            pickle.dump({
-                'history': {'train_loss': tr_losses, 'val_loss': vl_losses},
-                'targets': target,
-                'predictions': pred
-            }, pickle_file)
-        print(f"Data successfully saved to {pickle_file_path}")
-    except Exception as e:
-        print(f"Error saving data to pickle file: {e}")
-
-    original_target = postProcessing(target)
-    original_pred = postProcessing(pred)
-    print(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
-    avg_ssim = calculate_ssim_batch(target,pred)
-    for freq in range(len(avg_ssim)):
-        print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
-    
-    # img_plt(target[:200],pred[:200],path='/home/dc-su2/physical_informed/cnn/rotate/results/img/')
-    # history_plt(tr_losses,vl_losses,path='/home/dc-su2/physical_informed/cnn/rotate/results/')
-    torch.save(model.state_dict(),'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/test_model.pth')
-
+    trainer.save(False)
+   
+    # Clean up
+    cleanup()
 if __name__ == '__main__':
     main()
-
