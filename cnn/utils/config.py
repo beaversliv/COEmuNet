@@ -12,7 +12,7 @@ def parse_args():
     parser.add_argument('--logfile',type = str, default = 'log_file.txt')
     parser.add_argument('--model_name', type = str, default = 'model.pth')
     parser.add_argument('--history', type = str, default = 'history.pkl')
-    parser.add_argument('--epochs', type = int, default = 1)
+    parser.add_argument('--epochs', type = int, default = 1000)
     parser.add_argument('--batch_size', type = int, default = 128)
     parser.add_argument('--lr', type = float, default = 1e-3)
     parser.add_argument('--lr_decay', type = float, default = 0.95)
