@@ -113,11 +113,11 @@ class Latent(nn.Module):
         elif model_grid == 128:
             out_dim = 64 * 16 * 16
 
-        self.layers.append(nn.Linear(input_dim, input_dim*2))
-        self.layers.append(nn.ReLU())
-        self.layers.append(nn.Linear(input_dim*2, 16**3))
-        self.layers.append(nn.ReLU())
-        self.layers.append(nn.Linear(16**3, out_dim))
+        self.layers.append(nn.Linear(input_dim, 16*16*16))
+        # self.layers.append(nn.ReLU())
+        # self.layers.append(nn.Linear(input_dim*2, 72*72))
+        # self.layers.append(nn.ReLU())
+        self.layers.append(nn.Linear(16*16*16, out_dim))
         self.layers.append(nn.ReLU())
 
     def forward(self, x):
@@ -177,8 +177,8 @@ class Net(nn.Module):
             self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*4*4)
         elif model_grid == 64:
-            self.to_lat1 = nn.Linear(32*4*4*4*3,16*16*16)
-            self.to_dec3 = nn.Linear(16*16*16,64*8*8)
+            self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*8*8)
         elif model_grid == 128:
             self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*16*16)
@@ -198,8 +198,8 @@ class Net(nn.Module):
         x = torch.cat([x0, x1, x2], dim = -1)
  
         # (batch, 16*16*16)
-        x_latent = self.to_lat1(x) #dense layer
-        x = nn.ReLU()(self.to_dec3(x_latent)) # latent space
+        x_latent = self.to_lat(x) #dense layer
+        x = nn.ReLU()(self.to_dec(x_latent)) # latent space
         # grid 64
         if self.model_grid == 32:
             x = x.view(-1, 64, 4, 4)
