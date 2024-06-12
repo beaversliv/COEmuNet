@@ -175,10 +175,11 @@ class ddpTrainer:
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.loss_object = loss_object
-        logger = Logging(config['save_path'], config['logfile'])
+        logger = Logging(config['output']['save_path'], config['output']['logfile'])
         self.logger = logger
-        self.best_loss = float('inf')
+        self.best_loss = float('inf')  # Initialize best loss
         self.patience_counter = 0
+        self.dataset_stats = config['dataset']['statistics']
                                        
     def train(self):
         total_loss = 0.
@@ -217,7 +218,7 @@ class ddpTrainer:
         return P,T,torch.mean(L)
     def run(self):
         stop_signal = torch.tensor([0], device=self.rank)
-        for epoch in tqdm(range(self.config['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
+        for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss = self.train()
             torch.cuda.empty_cache()  # Clear cache after training            
             # Aggregate losses
@@ -239,6 +240,7 @@ class ddpTrainer:
             #     break
 
     def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_val_loss, all_preds, all_targets):
+       
         # Ensure targets and predictions have the same length
         assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
         all_targets = all_targets.cpu().numpy()
@@ -258,8 +260,8 @@ class ddpTrainer:
  
         if relative_loss < self.best_loss:
             self.best_loss = relative_loss
-            patience_counter = 0
-            model_path = os.path.join(self.config['save_path'], self.config['model_name'])
+            self.patience_counter = 0
+            model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
             torch.save(self.ddp_model.state_dict(), model_path)
         else:
             self.patience_counter += 1
@@ -289,45 +291,41 @@ class ddpTrainer:
     def save(self, save_hist=True):
         if self.rank == 0:
             map_location = {'cuda:%d' % 0: 'cuda:%d' % self.rank}
-            model_path = os.path.join(self.config['save_path'], self.config['model_name'])
-            self.ddp_model.load_state_dict(
-                            torch.load(model_path, map_location=map_location))
+            model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
+            self.ddp_model.load_state_dict(torch.load(model_path, map_location=map_location))
+
             all_preds, all_targets, test_loss = self.test()
             all_targets = all_targets.cpu().numpy()
             all_preds   = all_preds.cpu().numpy()
-            if self.rank == 0:
-                assert len(all_preds) == len(all_preds), "Targets and predictions must have the same length"
-                # Save the training history
-                if save_hist:
-                    history_path = os.path.join(self.config['save_path'],self.config['history'])
-                    with open(history_path, "wb") as pickle_file:
-                        pickle.dump({
-                            "predictions": all_preds,
-                            "targets": all_targets
-                        }, pickle_file)
-                    print(f'saved {history_path}!\n')
-                print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["epochs"], test_loss.cpu().item()))
-                original_target = self.postProcessing(all_targets)
-                original_pred = self.postProcessing(all_preds)
-                print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+            
+            assert len(all_preds) == len(all_preds), "Targets and predictions must have the same length"
+            # Save the training history
+            if save_hist:
+                history_path = os.path.join(self.config['output']['save_path'],self.config['output']['results'])
+                with open(history_path, "wb") as pickle_file:
+                    pickle.dump({
+                        "predictions": all_preds,
+                        "targets": all_targets
+                    }, pickle_file)
+                print(f'saved {history_path}!\n')
+            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
+            print('best loss', self.best_loss)
+            original_target = self.postProcessing(all_targets)
+            original_pred = self.postProcessing(all_preds)
+            print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
 
-                avg_ssim = calculate_ssim_batch(all_targets,all_preds)
-                for freq in range(len(avg_ssim)):
-                    print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
+            avg_ssim = calculate_ssim_batch(all_targets,all_preds)
+            for freq in range(len(avg_ssim)):
+                print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
 
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)
     def postProcessing(self,y):
-        # rotate stats
-        # min_ , max_ = -103.27893, -28.09121
-        # min_ = -50.24472
-        # median = 11.025192
-        min_ = -47.387955
-        median = 8.168968
+        min_   = self.dataset_stats['min']
+        median = self.dataset_stats['median']
         y = y*median + min_
-        # y = y * (max_ - min_) + min_
         y = np.exp(y)
-        return y    
+        return y
     def relativeLoss(self,original_target,original_pred):
         return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) * 100
         return relative_loss
