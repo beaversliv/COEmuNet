@@ -6,10 +6,10 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR
-from utils.preprocessing  import preProcessing
-from utils.ResNet3DModel  import Net
-from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.preprocessing  import preProcessing,get_random_data
 from utils.trainclass     import ddpTrainer
+from utils.ResNet3DModel  import Net
+from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.config         import parse_args
 # from utils.plot           import img_plt
 
@@ -25,7 +25,9 @@ import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 from sklearn.model_selection      import train_test_split 
-import socket                     
+import socket 
+
+# torch.backends.cudnn.deterministic = True
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
 
@@ -53,24 +55,26 @@ def setup(rank, world_size):
 def cleanup():
     "Cleans up the distributed environment"
     dist.destroy_process_group()
+   
 def main(): 
     # Initialize any necessary components for DDP
     world_size    = int(os.environ.get("SLURM_NTASKS"))
     rank          = int(os.environ.get("SLURM_PROCID"))
     gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
+    
     print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
-    setup(rank, world_size)
+    setup(rank, world_size) 
 
     config = parse_args()
     np.random.seed(config['seed'])
     torch.manual_seed(config['seed'])
     torch.cuda.manual_seed_all(config['seed'])
 
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
-    x,y = data_gen.get_data()
+    x,y = get_random_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
     # train test split
+    # x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
@@ -86,23 +90,21 @@ def main():
 
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
-
-    model = Net(config['model_grid'])
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
-    model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
-    model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
-
-    # model = Net(config['model_grid'])
+    ### set a model ###
+    model = Net(64)
     model = model.to(local_rank)
+    model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/faceon.pth'
+    map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    model.load_state_dict(torch.load(model_dict, map_location=map_location),strict=False)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    cheduler = StepLR(optimizer, step_size=50, gamma=0.2)
+    # init larger step size and lr with setpLR
+    scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
     loss_object = SobelMse(local_rank, alpha=config['alpha'],beta=config['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=scheduler)
     
     # Run the training and testing
     ### start training ###
