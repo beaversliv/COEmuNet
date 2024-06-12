@@ -1,0 +1,21 @@
+dataset:
+  name: "faceon"
+  path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5"
+  grid: 64
+  batch_size: 128
+  statistics:
+    min: -47.387955
+    median: 8.168968
+
+model:
+  seed: 1234
+  lr: 0.004
+  epochs: 500
+  alpha: 0.8
+  beta: 0.2
+
+output:
+  save_path: "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results"
+  logfile: "log_file.txt"
+  model_name: "model.pth"
+  results: "results.pkl"
