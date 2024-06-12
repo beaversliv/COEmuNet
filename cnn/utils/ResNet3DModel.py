@@ -102,66 +102,6 @@ class Decoder(nn.Module):
             x = layer(x)
         return x
 
-class FinetuneLatent(nn.Module):
-    def __init__(self,input_dim,model_grid=64):
-        super(FinetuneLatent,self).__init__()
-        self.layers =  nn.ModuleList()
-        if model_grid == 32:
-            out_dim = 64 * 4 * 4
-        elif model_grid == 64:
-            out_dim = 64 * 8 * 8
-        elif model_grid == 128:
-            out_dim = 64 * 16 * 16
-
-        self.layers.append(nn.Linear(input_dim, 16**3))
-        self.layers.append(nn.Linear(16**3, out_dim))
-        self.layers.append(nn.ReLU())
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
-class FinetuneNet(nn.Module):
-    def __init__(self,model_grid=64):
-        super(FinetuneNet, self).__init__()
-        self.model_grid = model_grid
-        self.encoder0 = Encoder(1)
-        self.encoder1 = Encoder(1)
-        self.encoder2 = Encoder(1)
-        # grid 64
-        if model_grid == 32:
-            input_dim = 32*2*2*2*3
-        elif model_grid == 64:
-            input_dim = 32*4*4*4*3
-        elif model_grid == 128:
-            input_dim = 32*8*8*8*3
-        self.latent = FinetuneLatent(input_dim=input_dim)
-
-        self.decoder= Decoder(in_channels=64, out_channels=1)
-    def forward(self,x):
-        x0 = self.encoder0(x[:, 0:1, :, :, :])
-        x1 = self.encoder1(x[:, 1:2, :, :, :])
-        x2 = self.encoder2(x[:, 2:3, :, :, :])
-      
-        # x0 shape (batch size, 32*4*4*4)
-        x0 = torch.flatten(x0, start_dim=1)   
-        x1 = torch.flatten(x1, start_dim=1)   
-        x2 = torch.flatten(x2, start_dim=1) 
-        # x shape (batch size, 32*4*4*4*3)
-        features = torch.cat([x0, x1, x2], dim = -1)
-        latent_output = self.latent(features)
-
-        if self.model_grid == 32:
-            x = latent_output.view(-1, 64, 4, 4)
-        elif self.model_grid == 64:
-            x = latent_output.view(-1, 64, 8, 8)
-        elif self.model_grid == 128:
-            x = latent_output.view(-1, 64, 16, 16)
-        
-	    # shape (batch_size,64,8,8)
-        output = self.decoder(x)
-        return output
-
 class Latent(nn.Module):
     def __init__(self,input_dim,model_grid=64):
         super(Latent,self).__init__()
@@ -173,17 +113,21 @@ class Latent(nn.Module):
         elif model_grid == 128:
             out_dim = 64 * 16 * 16
 
-        self.layers.append(nn.Linear(input_dim, 16**3))
-        self.layers.append(nn.Linear(16**3, out_dim))
+        self.layers.append(nn.Linear(input_dim, 16*16*16))
+        # self.layers.append(nn.ReLU())
+        # self.layers.append(nn.Linear(input_dim*2, 72*72))
+        # self.layers.append(nn.ReLU())
+        self.layers.append(nn.Linear(16*16*16, out_dim))
         self.layers.append(nn.ReLU())
 
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
         return x
-class Net(nn.Module):
+
+class FinetuneNet(nn.Module):
     def __init__(self,model_grid=64):
-        super(Net, self).__init__()
+        super(FinetuneNet, self).__init__()
         self.model_grid = model_grid
         self.encoder0 = Encoder(1)
         self.encoder1 = Encoder(1)
@@ -221,7 +165,52 @@ class Net(nn.Module):
 	    # shape (batch_size,64,8,8)
         output = self.decoder(x)
         return output
-
+class Net(nn.Module):
+    def __init__(self,model_grid=64):
+        super(Net, self).__init__()
+        self.model_grid = model_grid
+        self.encoder0 = Encoder(1)
+        self.encoder1 = Encoder(1)
+        self.encoder2 = Encoder(1)
+        # grid 64
+        if model_grid == 32:
+            self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*4*4)
+        elif model_grid == 64:
+            self.to_lat1 = nn.Linear(32*4*4*4*3,16*16*16)
+            self.to_dec3 = nn.Linear(16*16*16,64*8*8)
+        elif model_grid == 128:
+            self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*16*16)
+        self.decoder= Decoder(in_channels=64, out_channels=1)
+        
+        
+    def forward(self, x):
+        x0 = self.encoder0(x[:, 0:1, :, :, :])
+        x1 = self.encoder1(x[:, 1:2, :, :, :])
+        x2 = self.encoder2(x[:, 2:3, :, :, :])
+      
+        # x0 shape (batch size, 32*4*4*4)
+        x0 = torch.flatten(x0, start_dim=1)   
+        x1 = torch.flatten(x1, start_dim=1)   
+        x2 = torch.flatten(x2, start_dim=1) 
+        # x shape (batch size, 32*4*4*4*3)
+        x = torch.cat([x0, x1, x2], dim = -1)
+ 
+        # (batch, 16*16*16)
+        x_latent = self.to_lat1(x) #dense layer
+        x = nn.ReLU()(self.to_dec3(x_latent)) # latent space
+        # grid 64
+        if self.model_grid == 32:
+            x = x.view(-1, 64, 4, 4)
+        elif self.model_grid == 64:
+            x = x.view(-1, 64, 8, 8)
+        elif self.model_grid == 128:
+            x = x.view(-1, 64, 16, 16)
+        
+	    # shape (batch_size,64,8,8)
+        output = self.decoder(x)
+        return output
 class PixelWisePredictor(nn.Module):
     def __init__(self, input_dim):
         super(PixelWisePredictor, self).__init__()
@@ -344,7 +333,7 @@ class Net3D(nn.Module):
 if __name__ == '__main__':
     batch_size = 32
     z = torch.randn((batch_size,3,64,64,64)) # treat 31 as a sequence or depth
-    decoder = Net(64)
+    decoder = FinetuneNet(64)
     output_imgs = decoder(z)
     print(output_imgs.shape)
 
