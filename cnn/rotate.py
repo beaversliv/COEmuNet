@@ -6,8 +6,8 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR,CyclicLR
-from utils.preprocessing  import preProcessing
-from utils.ResNet3DModel  import FinetuneNet
+from utils.preprocessing  import preProcessing,get_data
+from utils.ResNet3DModel  import FinetuneNet,Net
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -72,8 +72,7 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    data_gen = preProcessing(config['dataset']['path'])
-    x,y = data_gen.get_data()
+    x,y = get_data(config['dataset']['path'])
     # train test split
     # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
@@ -92,7 +91,7 @@ def main():
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
 
-    model = FinetuneNet(config['dataset']['grid'])
+    model = Net(config['dataset']['grid'])
     # model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
     # checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
     # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
