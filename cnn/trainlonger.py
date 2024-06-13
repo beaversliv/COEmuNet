@@ -6,7 +6,7 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR
-from utils.preprocessing  import preProcessing
+from utils.preprocessing  import preProcessing,get_data
 from utils.trainclass     import ddpTrainer
 from utils.ResNet3DModel  import Net
 from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
@@ -75,8 +75,9 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    data_gen = preProcessing(config['dataset']['path'])
-    x,y = data_gen.get_data()
+    # data_gen = preProcessing(config['dataset']['path'])
+    # x,y = data_gen.get_data()
+    x,y = get_data(config['dataset']['path'])
     # train test split
     # x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
@@ -89,13 +90,13 @@ def main():
     test_dataset = TensorDataset(xte, yte)
 
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
-    train_dataloader = DataLoader(train_dataset, config['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=num_workers, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
 
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
     ### set a model ###
-    model = Net(64)
+    model = Net(config['dataset']['grid'])
     model = model.to(local_rank)
     model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
     map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
@@ -103,7 +104,8 @@ def main():
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
-    optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['model']['lr'], betas=(0.9, 0.999))
+    optimizer_params = config['optimizer']['params']
+    optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
     # init larger step size and lr with setpLR
     scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
     loss_object = SobelMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
