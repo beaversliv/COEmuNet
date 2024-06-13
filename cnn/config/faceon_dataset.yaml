@@ -9,10 +9,29 @@ dataset:
 
 model:
   seed: 1234
-  lr: 0.004
   epochs: 500
   alpha: 0.8
   beta: 0.2
+
+optimizer:
+  type: "adam"
+  params:
+    lr: 0.0004
+    betas: [0.9, 0.999]
+    eps: 1e-08
+    weight_decay: 0
+    amsgrad: false
+
+# scheduler:
+#   type: "cyclic"
+#   params:
+#     base_lr: 0.0004
+#     max_lr: 0.04
+#     step_size_up: 100
+#     step_size_down: null  # If null, step_size_down is set to step_size_up
+#     mode: "triangular"
+#     gamma: 1.0
+#     cycle_momentum: false 
 
 output:
   save_path: "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results"

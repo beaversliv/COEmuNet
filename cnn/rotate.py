@@ -5,7 +5,7 @@ from torch.autograd           import Variable
 from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR,CyclicLR
 from utils.preprocessing  import preProcessing
 from utils.ResNet3DModel  import FinetuneNet
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
@@ -75,7 +75,7 @@ def main():
     data_gen = preProcessing(config['dataset']['path'])
     x,y = data_gen.get_data()
     # train test split
-    x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
+    # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
@@ -93,21 +93,23 @@ def main():
     torch.cuda.set_device(local_rank)
 
     model = FinetuneNet(config['dataset']['grid'])
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
-    model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
-    model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
+    # model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
+    # checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
+    # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
+    # model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
 
     # model = Net(config['model_grid'])
     model = model.to(local_rank)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
-    optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['model']['lr'], betas=(0.9, 0.999))
-    scheduler = StepLR(optimizer, step_size=50, gamma=0.2)
+    optimizer_params = config['optimizer']['params']
+    optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
+    
+    scheduler = CyclicLR(optimizer,base_lr=4*1e-4,max_lr=4*1e-2,step_size_up=100,mode='triangular',cycle_momentum=False)
     loss_object = SobelMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=scheduler)
     
     # Run the training and testing
     ### start training ###
