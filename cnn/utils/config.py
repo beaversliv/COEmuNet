@@ -48,7 +48,6 @@ def parse_args():
     parser.add_argument('--seed', type=int, help='Override seed')
 
     parser.add_argument('--lr', type=float)
-    parser.add_argument('--opt_betas', type=float)
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--alpha', type=float, help='weight for feature loss')
     parser.add_argument('--beta', type=float, help='weight for MSE')
@@ -89,8 +88,6 @@ def merge_config(args, config):
     if 'optimizer' in config and config['optimizer']['type'] == 'adam':
         if args.lr:
             config['optimizer']['params']['lr'] = args.lr
-        if args.opt_betas:
-            config['optimizer']['params']['betas'] = eval(args.opt_betas)
 
     config = OrderedDict(config)
     return config

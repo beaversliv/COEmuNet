@@ -1,6 +1,7 @@
 dataset:
   name: "faceon"
   path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5"
+  grid: 64
   batch_size: 128
   statistics:
     min: -50.24472
@@ -8,7 +9,6 @@ dataset:
 
 model:
   seed: 1234
-  lr: 0.004
   epochs: 500
   alpha: 0.8
   beta: 0.2
@@ -18,7 +18,7 @@ optimizer:
   params:
     lr: 0.0004
     betas: [0.9, 0.999]
-    eps: 1e-08
+    eps: 1.0e-08
     weight_decay: 0
     amsgrad: false
 
@@ -32,4 +32,4 @@ output:
   save_path: "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql"
   logfile: "log_file.txt"
   model_name: "model.pth"
-  history: "history.pkl"
+  results: "history.pkl"
