@@ -51,3 +51,15 @@ class preProcessing:
         print('median',np.median(y))
         y = y/np.median(y)
         return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
+def get_data(path):
+    with h5.File(path,'r') as sample:
+        x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
+        y = np.array(sample['output'], np.float32)
+    return x,y
+# if __name__ == '__main__':
+#     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
+#     x,y = data_gen.get_data()
+#     with h5.File('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_faceon_grid64_data0.hdf5','w') as file:
+#         file['input'] = x
+#         file['output'] = y
+#     print('saved!')
