@@ -1,6 +1,6 @@
 dataset:
   name: "faceon"
-  path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5"
+  path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_faceon_grid64_data0.hdf5"
   grid: 64
   batch_size: 128
   statistics:
