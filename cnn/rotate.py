@@ -91,14 +91,14 @@ def main():
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
 
-    model = Net(config['dataset']['grid'])
+    model = FinetuneNet(config['dataset']['grid'])
+    model = model.to(local_rank)
     # model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    # checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
+    # map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    # model.load_state_dict(torch.load(model_dic, map_location=map_location),strict=False)
+    # checkpoint = torch.load(model_dic,map_location=map_location)
     # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
     # model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
-
-    # model = Net(config['model_grid'])
-    model = model.to(local_rank)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
