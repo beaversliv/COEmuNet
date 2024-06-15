@@ -113,11 +113,8 @@ class Latent(nn.Module):
         elif model_grid == 128:
             out_dim = 64 * 16 * 16
 
-        self.layers.append(nn.Linear(input_dim, 16*16*16))
-        # self.layers.append(nn.ReLU())
-        # self.layers.append(nn.Linear(input_dim*2, 72*72))
-        # self.layers.append(nn.ReLU())
-        self.layers.append(nn.Linear(16*16*16, out_dim))
+        self.layers.append(nn.Linear(input_dim, 2048))
+        self.layers.append(nn.Linear(2048, out_dim))
         self.layers.append(nn.ReLU())
 
     def forward(self, x):
@@ -333,7 +330,7 @@ class Net3D(nn.Module):
 if __name__ == '__main__':
     batch_size = 32
     z = torch.randn((batch_size,3,64,64,64)) # treat 31 as a sequence or depth
-    decoder = FinetuneNet(64)
+    decoder = Net(64)
     output_imgs = decoder(z)
     print(output_imgs.shape)
 

@@ -72,9 +72,9 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    x,y = get_data(config['dataset']['path'])
+    # x,y = get_data(config['dataset']['path'])
     # train test split
-    # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
+    x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
