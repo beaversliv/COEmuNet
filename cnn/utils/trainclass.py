@@ -36,6 +36,7 @@ class Logging:
             'epoch': epoch,
             'train_loss': train_loss,
             'train_feature':train_feature,
+            'train_mse':train_mse,
             'val_loss': val_loss,
             'val_feature':val_feature,
             'val_mse':val_mse,
