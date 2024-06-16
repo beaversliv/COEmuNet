@@ -297,7 +297,7 @@ class FreqMse(nn.Module):
         loss_mse = nn.functional.mse_loss(pred, target)
         # Combine the losses
         loss_combined = self.alpha * loss_edge + self.beta * loss_mse 
-        return loss_combined
+        return self.alpha * loss_edge,self.beta * loss_mse
 
 class FreqMae(nn.Module):
     def __init__(self,alpha=0.05,beta=0.95):
