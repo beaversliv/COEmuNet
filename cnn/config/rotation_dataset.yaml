@@ -5,6 +5,7 @@ dataset:
   batch_size: 128
   statistics:
     min: -50.24472
+    max: -29.520607
     median: 11.025192
 
 model:

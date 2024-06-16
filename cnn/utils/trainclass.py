@@ -347,7 +347,9 @@ class ddpTrainer:
     def postProcessing(self,y):
         min_   = self.dataset_stats['min']
         median = self.dataset_stats['median']
-        y = y*median + min_
+        max_   = self.dataset_stats['max']
+        # y = y*median + min_
+        y = y*(max_ - min_)+min_
         y = np.exp(y)
         return y
     def relativeLoss(self,original_target,original_pred):
