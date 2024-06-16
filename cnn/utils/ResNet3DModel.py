@@ -113,8 +113,8 @@ class Latent(nn.Module):
         elif model_grid == 128:
             out_dim = 64 * 16 * 16
 
-        self.layers.append(nn.Linear(input_dim, 2048))
-        self.layers.append(nn.Linear(2048, out_dim))
+        self.layers.append(nn.Linear(input_dim, 16**3))
+        self.layers.append(nn.Linear(16**3, out_dim))
         self.layers.append(nn.ReLU())
 
     def forward(self, x):

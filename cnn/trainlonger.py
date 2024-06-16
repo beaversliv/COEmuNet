@@ -77,7 +77,7 @@ def main():
 
     # data_gen = preProcessing(config['dataset']['path'])
     # x,y = data_gen.get_data()
-    x,y = get_data(config['dataset']['path'])
+    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/minmax_random_grid64_data0.hdf5')
     # train test split
     # x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
@@ -98,9 +98,9 @@ def main():
     ### set a model ###
     model = Net(config['dataset']['grid'])
     model = model.to(local_rank)
-    model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    model.load_state_dict(torch.load(model_dict, map_location=map_location))
+    # model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
+    # map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    # model.load_state_dict(torch.load(model_dict, map_location=map_location))
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
@@ -110,7 +110,7 @@ def main():
     scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
     loss_object = SobelMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=scheduler)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
     
     # Run the training and testing
     ### start training ###
@@ -121,7 +121,7 @@ def main():
     trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
-    trainer.save(True)
+    trainer.save(False)
    
     # Clean up
     cleanup()

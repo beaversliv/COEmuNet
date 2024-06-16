@@ -262,11 +262,11 @@ class SobelMse(nn.Module):
         # Calculate the MSE loss
         loss_mse = nn.functional.mse_loss(pred, target)
         # Combine the losses
-        # loss_combined = self.alpha * loss_edge + self.beta * loss_mse
-        return self.alpha * loss_edge,self.beta * loss_mse
+        loss_combined = self.alpha * loss_edge + self.beta * loss_mse
+        return loss_combined
 class SobelMae(nn.Module):
     def __init__(self,device,alpha=0.6,beta=0.4):
-        super(FreqMae, self).__init__()
+        super(SobelMae, self).__init__()
         self.edge_loss = SobelLoss().to(device)
         self.alpha     = alpha
         self.beta      = beta

@@ -30,15 +30,12 @@ class Logging:
 
             with open(self.log_file, 'a') as f:  # a for append to the end of the file.
                 print(message, file=f)
-    def write_log_metrics(self, epoch, train_loss, train_feature, train_mse, val_loss, val_feature, val_mse, relative_loss, ssim_values, gpu_rank=0, console=True):
+    def write_log_metrics(self, epoch, train_loss, val_loss, relative_loss, ssim_values, gpu_rank=0, console=True):
         # Create a structured log entry
         log_entry = {
             'epoch': epoch,
             'train_loss': train_loss,
-            'train_feature':train_feature,
             'val_loss': val_loss,
-            'val_feature':val_feature,
-            'val_mse':val_mse,
             'relative_loss': relative_loss,
             'ssim': ssim_values
         }
@@ -186,25 +183,19 @@ class ddpTrainer:
                                        
     def train(self):
         total_loss = 0.
-        total_soble = 0.
-        total_mse  = 0.
         self.ddp_model.train()
         
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
             self.optimizer.zero_grad()
             output = self.ddp_model(data)
-            soble_loss,mse = self.loss_object(target, output)
-            loss = soble_loss + mse
+            loss = self.loss_object(target, output)
+
             loss.backward()
             self.optimizer.step()
             total_loss += loss.detach()
-            total_soble += soble_loss.detach()
-            total_mse += mse.detach()
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
-        epoch_soble = total_soble / len(self.train_dataloader)
-        epoch_mse = total_mse / len(self.train_dataloader)
-        return epoch_loss,epoch_soble,epoch_mse
+        return epoch_loss
 
     
     def test(self):
@@ -212,43 +203,32 @@ class ddpTrainer:
         P = []
         T = []
         L = []
-        SL = []
-        MSE = []
         with torch.no_grad():
             for bidx, samples in enumerate(self.test_dataloader):
                 data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
                 pred = self.ddp_model(data)
-                soble_loss,mse = self.loss_object(target, pred)
-
-                loss = soble_loss + mse
+                loss = self.loss_object(target, pred)
+                
                 P.append(pred.detach())
                 T.append(target.detach())
                 L.append(loss.detach())
-                SL.append(soble_loss.detach())
-                MSE.append(mse.detach())
         P = torch.cat(P, dim=0)
         T = torch.cat(T,dim=0)
         L = torch.stack(L)
-        SL = torch.stack(SL)
-        MSE = torch.stack(MSE)
-        return P,T,torch.mean(L),torch.mean(SL),torch.mean(MSE)
+        return P,T,torch.mean(L)
     def run(self):
         stop_signal = torch.tensor([0], device=self.rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
-            epoch_loss,epoch_soble,epoch_mse = self.train()
+            epoch_loss = self.train()
             torch.cuda.empty_cache()  # Clear cache after training            
             # Aggregate losses
             dist.all_reduce(epoch_loss, op=torch.distributed.ReduceOp.SUM)
             aggregated_epoch_loss = epoch_loss/self.world_size
 
-            dist.all_reduce(epoch_soble, op=torch.distributed.ReduceOp.SUM)
-            aggregated_epoch_soble = epoch_soble/self.world_size
-            dist.all_reduce(epoch_mse, op=torch.distributed.ReduceOp.SUM)
-            aggregated_epoch_mse = epoch_mse/self.world_size
             # # Update history on master process
             if self.rank == 0:
-                pred, target, val_loss,val_feature,val_mse = self.test()
-                self.log_metrics(epoch, aggregated_epoch_loss, aggregated_epoch_soble, aggregated_epoch_mse, val_loss, val_feature,val_mse, pred, target)
+                pred, target, val_loss = self.test()
+                self.log_metrics(epoch, aggregated_epoch_loss, val_loss, pred, target)
             if self.scheduler:
                 self.scheduler.step()
             #     if stop_training:
@@ -259,7 +239,7 @@ class ddpTrainer:
             # if stop_signal[0].item() == 1:
             #     break
 
-    def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_epoch_soble, aggregated_epoch_mse, aggregated_val_loss, val_feature,val_mse, all_preds, all_targets):
+    def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_val_loss, all_preds, all_targets):
        
         # Ensure targets and predictions have the same length
         assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
@@ -270,16 +250,13 @@ class ddpTrainer:
         relative_loss = self.relativeLoss(original_target, original_pred)
         
         avg_ssim = calculate_ssim_batch(all_targets, all_preds)
+
         self.logger.write_log_metrics(
-            epoch         = epoch,
-            train_loss    = aggregated_epoch_loss.cpu().item(),
-            train_feature = aggregated_epoch_soble.cpu().item(),
-            train_mse     = aggregated_epoch_mse.cpu().item(),
-            val_loss      = aggregated_val_loss.cpu().item(),
-            val_feature   = val_feature.cpu().item(),
-            val_mse       = val_mse.cpu().item(),
+            epoch = epoch,
+            train_loss = aggregated_epoch_loss.cpu().item(),
+            val_loss = aggregated_val_loss.cpu().item(),
             relative_loss = relative_loss,
-            ssim_values   = avg_ssim)
+            ssim_values = avg_ssim)
  
         if relative_loss < self.best_loss:
             self.best_loss = relative_loss
@@ -317,7 +294,7 @@ class ddpTrainer:
             model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
             self.ddp_model.load_state_dict(torch.load(model_path, map_location=map_location))
 
-            all_preds, all_targets, test_loss,test_feature,test_mse = self.test()
+            all_preds, all_targets, test_loss = self.test()
             all_targets = all_targets.cpu().numpy()
             all_preds   = all_preds.cpu().numpy()
             

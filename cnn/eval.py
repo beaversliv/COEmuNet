@@ -33,8 +33,8 @@ def time_eval(log_file:str,test_dataloader,device,model_path:str,grid:int):
 
 def eval(test_dataloader,device,model_path:str):
     loss_object = SobelMse(device,0.8,0.2)
-    model = Net().to(device)
-    model.load_state_dict(torch.load(model_path,map_location=device))
+    model = Net(64).to(device)
+    model.load_state_dict(torch.load(model_path,map_location=device),strict=False)
     model.eval()
     P = []
     T = []
@@ -75,6 +75,7 @@ def main():
 
     data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
     x,y = data_gen.get_data()
+    # x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
 
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
@@ -86,7 +87,7 @@ def main():
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/fineTune_model1.pth'
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
     target, pred,loss = eval(test_dataloader,device,model_dic)
     print('test loss', loss)
 
@@ -97,6 +98,17 @@ def main():
     avg_ssim = calculate_ssim_batch(target,pred)
     for freq in range(len(avg_ssim)):
         print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
+    try:
+        history_path = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/faceon.pkl'
+        with open(history_path, "wb") as pickle_file:
+            pickle.dump({
+                "predictions": pred,
+                "targets": target
+            }, pickle_file)
+        print(f"Data successfully saved to {history_path}")
+    except Exception as e:
+        print(f"Error saving data to pickle file: {e}")
+
     # time_eval(log_file='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/freq31_runtime64.log',
     #       test_dataloader=test_dataloader,
     #       device=device,
