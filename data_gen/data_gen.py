@@ -42,6 +42,7 @@ def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
         frequencies = torch.linspace(fmin,fmax,nqua,dtype=torch.float64)
     else:
         frequencies = torch.tensor([fcen],dtype=torch.float64)
+        print('single frequency')
     # # redefine frequency range, only focused on intersted centred region
     # start_freq,end_freq = frequencies[11],frequencies[19]
     # frequencies = torch.linspace(start_freq,end_freq,31)
@@ -125,7 +126,7 @@ def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
     # with profile(activities=[ProfilerActivity.CPU], profile_memory=True, record_shapes=True) as prof:
     # intensity along z-axis
     # time measurement
-    logging.basicConfig(filename=f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/numerical_runtime2/single_ro_runtime{model_grid}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    # logging.basicConfig(filename=f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/numerical_runtime2/single_ro_runtime{model_grid}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     start = time.time()
     img = line.LTE_image_along_last_axis(
     density      = p3droslo_model['CO'         ],
@@ -137,7 +138,7 @@ def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
     )
     end = time.time()
     running_time = end - start
-    logging.info(f'Running time: {running_time:.6} seconds')
+    # logging.info(f'Running time: {running_time:.6} seconds')
     # print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
     # Avoid negative values (should probably avoid these earlier...)
     img = torch.abs(img)
@@ -153,7 +154,7 @@ def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="A script with command-line arguments")
-    parser.add_argument('--type', type = str, default = "Specify the type (default: 'or')")
+    parser.add_argument('--type', type = str, default = "Specify the type (or,r1,r2)")
     parser.add_argument('--model_grid', type = int, default = 64)
     parser.add_argument('--mulfreq', type = bool, default = False,help="Flag to indicate if multiple frequencies should be used (default: False)")
 
@@ -174,7 +175,7 @@ def main():
 
     line = Line(
         species_name = "co",
-        transition   = 1,
+        transition   = 0,
         datafile     = "/home/dc-su2/physical_informed/data_gen/co.txt",
         molar_mass   = 28.0
     )
@@ -185,7 +186,7 @@ def main():
         datasets = datasets[:10903]
         
     elif args.type == 'r1':
-        datasets = datasets[:1090]
+        datasets = datasets[:10903]
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/_runtime{model_grid}_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     elif args.type == 'r2':
         datasets = datasets[10903:]
@@ -199,15 +200,15 @@ def main():
     comm.Barrier()
     for idx in range(start_index,end_index):
         print(f'reading {model_files[idx]}')
-        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line=line,radius=radius,type_=args.type,model_grid=args.model_grid)
-        # path = datasets[idx]
-        # print(f'writing {path}\n')
-        # with h5.File(path, "w") as file:
-        #     file.create_dataset('frequencies',  data=frequencies)
-        #     file.create_dataset("CO",           data=nCO_dat)
-        #     file.create_dataset("temperature",  data=tmp_dat)
-        #     file.create_dataset("velocity_z",   data=v_z_dat)
-        #     file.create_dataset('I',            data=img)
+        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line=line,radius=radius,type_=args.type,mulfreq=args.mulfreq,model_grid=args.model_grid)
+        path = datasets[idx]
+        print(f'writing {path}\n')
+        with h5.File(path, "w") as file:
+            file.create_dataset('frequencies',  data=frequencies)
+            file.create_dataset("CO",           data=nCO_dat)
+            file.create_dataset("temperature",  data=tmp_dat)
+            file.create_dataset("velocity_z",   data=v_z_dat)
+            file.create_dataset('I',            data=img)
 
 if __name__ == '__main__':
     main()
