@@ -419,13 +419,13 @@ class ClsSO3VoxConvModel(torch.nn.Module):
         # x = self.fc3(x)
 
         return x
-class Latent(nn.Module):
+class Latent(torch.nn.Module):
     def __init__(self,input_dim):
         super(Latent,self).__init__()
-        self.layers =  nn.ModuleList()
-        self.layers.append(nn.Linear(input_dim, 16**3))
-        self.layers.append(nn.Linear(16**3, 64*8*8))
-        self.layers.append(nn.ReLU())
+        self.layers =  torch.nn.ModuleList()
+        self.layers.append(torch.nn.Linear(input_dim, 16**3))
+        self.layers.append(torch.nn.Linear(16**3, 64*8*8))
+        self.layers.append(torch.nn.ReLU())
 
     def forward(self, x):
         for layer in self.layers:
@@ -461,4 +461,10 @@ class SO3Net(torch.nn.Module):
       
 	    # shape (batch_size,64,8,8)
         output = self.decoder(x)
-        return x_latent, output
+        return output
+if __name__ == '__main__':
+    batch_size = 32
+    z = torch.randn((batch_size,3,64,64,64)) # treat 31 as a sequence or depth
+    decoder = SO3Net()
+    output_imgs = decoder(z)
+    print(output_imgs.shape)
