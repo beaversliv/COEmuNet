@@ -19,7 +19,7 @@ def load_dataset_names(json_file_path):
     # random.shuffle(datasets)
     return datasets
 
-def distribute_datasets(datasets, rank, nproc, segment_size=12000):
+def distribute_datasets(datasets, rank, nproc, segment_size=10903):
     '''
     split list of paths (datasets) into batches by
     marking start and end idx
@@ -57,7 +57,7 @@ def save_processed_data(output_path, X, Y, FREQS):
     with h5.File(output_path, 'w') as file:
         file['input'] = X
         file['output'] = Y
-        file['nfreqs'] = FREQS
+        # file['nfreqs'] = FREQS
 
 # Main MPI execution flow
 if __name__ == "__main__":
@@ -66,13 +66,13 @@ if __name__ == "__main__":
     nproc = comm.Get_size()
 
     # name_lists = '/home/dc-su2/physical_informed/data_gen/datasets.json'
-    name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/mul_freq_gird64.json'
+    name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/grid64_data.json'
     datasets = load_dataset_names(name_lists)
-    process_file_list = distribute_datasets(datasets, rank, nproc,len(datasets)//nproc)
-
+    # process_file_list = distribute_datasets(datasets[10903:10903*2], rank, nproc,len(datasets)//nproc)
+    process_file_list = distribute_datasets(datasets[10903:10903*2], rank, nproc,10903)
     X, Y, FREQS = process_datasets(process_file_list)
     print(Y.shape)
-    output_file = f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_{rank}.hdf5'
+    output_file = f'/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data1.hdf5'
     save_processed_data(output_file, X, Y, FREQS)
     
     
