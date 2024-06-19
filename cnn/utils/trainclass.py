@@ -76,6 +76,7 @@ class Trainer:
             output = self.model(data)
             soble_loss,mse = self.loss_object(target, output)
             loss = soble_loss + mse
+            
             loss.backward()
             self.optimizer.step()
 
