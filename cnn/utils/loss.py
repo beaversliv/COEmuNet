@@ -316,8 +316,8 @@ class FreqMae(nn.Module):
         # Calculate the MSE loss
         loss_mae = nn.functional.l1_loss(pred, target)
         # Combine the losses
-        loss_combined = self.alpha * loss_edge + self.beta * loss_mae 
-        return loss_combined
+        # loss_combined = self.alpha * loss_edge + self.beta * loss_mae 
+        return self.alpha * loss_edge , self.beta * loss_mae 
 
 
 
