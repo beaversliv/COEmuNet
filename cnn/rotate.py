@@ -1,3 +1,7 @@
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=RuntimeWarning)
+    from utils.so3_model      import SO3Net
 import torch
 import torch.nn as nn
 import torch.multiprocessing  as mp
@@ -214,7 +218,7 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/minmax_random_grid64_data0.hdf5')
+    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5')
     # x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
@@ -233,7 +237,7 @@ def main():
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
 
-    model = FinetuneNet(config['dataset']['grid'])
+    model = SO3Net()
     # model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
     # checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
     # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
@@ -248,7 +252,7 @@ def main():
     # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
     scheduler = CyclicLR(optimizer,base_lr=4*1e-4,max_lr=4*1e-2,step_size_up=100,mode='triangular',cycle_momentum=False)
-    loss_object = SobelMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
+    loss_object = FreqMae(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
     
