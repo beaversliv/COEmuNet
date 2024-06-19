@@ -131,7 +131,7 @@ class Trainer:
             # if patience_counter >= self.config['patience']:
             #     print("Early stopping triggered")
             #     break
-        return history
+        
     def log_metrics(self, epoch, epoch_loss, epoch_soble,epoch_mse,tr_p,tr_t,val_loss, val_feature,val_mse,val_p, val_t):
         tr_p = tr_p.cpu().numpy()
         tr_t = tr_t.cpu().numpy()
