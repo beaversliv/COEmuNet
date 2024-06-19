@@ -218,8 +218,8 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5')
-    # x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
+    # x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5')
+    x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
     xtr = torch.tensor(xtr,dtype=torch.float32)
@@ -245,7 +245,7 @@ def main():
 
     # model = Net(config['model_grid'])
     model = model.to(local_rank)
-    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
+    ddp_model = DDP(model, device_ids=[local_rank])
 
     # Define the optimizer for the DDP model
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=4e-4, betas=(0.9, 0.999))

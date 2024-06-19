@@ -43,8 +43,8 @@ def main():
     np.random.seed(config['model']['seed'])
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
-    # x,y = get_data(config['dataset']['path'])
-    x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
+    x,y = get_data(config['dataset']['path'])
+    # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
@@ -71,6 +71,7 @@ def main():
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(model.parameters(), **optimizer_params)
     ### start training ###
+    print('start training')
     start = time.time()
     # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
     trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
