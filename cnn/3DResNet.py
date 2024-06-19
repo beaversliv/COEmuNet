@@ -75,7 +75,7 @@ def main():
     start = time.time()
     # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
     trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
-    history = trainer.run()
+    trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
     
