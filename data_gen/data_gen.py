@@ -167,7 +167,7 @@ def main():
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
      
-    name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/mul_freq_gird64.json'
+    name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/grid64_data.json'
     with open(name_lists,'r') as file:
         lists = json.load(file)
     datasets   = lists['datasets']
@@ -186,10 +186,10 @@ def main():
         datasets = datasets[:10903]
         
     elif args.type == 'r1':
-        datasets = datasets[:10903]
+        datasets = datasets[10903:10903*2]
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/_runtime{model_grid}_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     elif args.type == 'r2':
-        datasets = datasets[10903:]
+        datasets = datasets[10903*2:]
         
     n_tasks    = len(datasets)
     # tasks_per_rank = int(n_tasks / nproc)
