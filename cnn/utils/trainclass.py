@@ -48,6 +48,7 @@ class Logging:
         # Convert log entry to a JSON string
         message = json.dumps(log_entry)
         self.info(message, gpu_rank, console)
+
 class Trainer:
     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
         self.model = model
@@ -199,25 +200,57 @@ class Trainer:
             y = np.exp(y)
             return y
         return transformation(target), transformation(pred)
-### train step ###
+
+class ddpLogging:
+    def __init__(self, file_dir:str, file_name:str):
+        if not os.path.exists(file_dir):
+            os.mkdir(file_dir)
+        self.log_file = os.path.join(file_dir, file_name)
+        open(self.log_file, 'w').close()
+    def info(self, message, gpu_rank=0, console=True):
+        # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
+        if gpu_rank is None or gpu_rank == 0:
+            if console:
+                print(message)
+
+            with open(self.log_file, 'a') as f:  # a for append to the end of the file.
+                print(message, file=f)
+    def write_log_metrics(self, epoch, train_loss, train_feature, train_mse,val_loss, val_feature, val_mse, val_maxrel, val_ssim, gpu_rank=0, console=True):
+        # Create a structured log entry
+        log_entry = {
+            'epoch': epoch,
+            'train_loss': train_loss,
+            'train_feature':train_feature,
+            'train_mse':train_mse,
+            'val_loss': val_loss,
+            'val_feature':val_feature,
+            'val_mse':val_mse,
+            'relative_loss': val_maxrel,
+            'ssim': val_ssim
+        }
+        
+        # Convert log entry to a JSON string
+        message = json.dumps(log_entry)
+        self.info(message, gpu_rank, console)
+ ### train step ###       
 class ddpTrainer:
-    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,world_size,scheduler=None):
-        self.ddp_model = ddp_model
+    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,local_rank,world_size,scheduler=None):
+        self.ddp_model        = ddp_model
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
 
-        self.config = config
-        self.rank   = rank # global rank, world_size -1, distinguish each process
-        self.world_size = world_size # num GPUs
+        self.config           = config
+        self.rank             = rank # global rank, world_size -1, distinguish each process
+        self.local_rank       = local_rank
+        self.world_size       = world_size # num GPUs
         # Define the optimizer for the DDP model
-        self.optimizer = optimizer
-        self.scheduler = scheduler
-        self.loss_object = loss_object
-        logger = Logging(config['output']['save_path'], config['output']['logfile'])
-        self.logger = logger
-        self.best_loss = float('inf')  # Initialize best loss
+        self.optimizer        = optimizer
+        self.scheduler        = scheduler
+        self.loss_object      = loss_object
+        self.logger           = ddpLogging(config['output']['save_path'], config['output']['logfile'])
+        self.best_loss        = float('inf')  # Initialize best loss
         self.patience_counter = 0
-        self.dataset_stats = config['dataset']['statistics']
+        self.dataset_stats    = config['dataset']['statistics']
                                        
     def train(self):
         total_loss = 0.
@@ -226,7 +259,7 @@ class ddpTrainer:
         self.ddp_model.train()
         
         for bidx, samples in enumerate(self.train_dataloader):
-            data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
+            data, target = Variable(samples[0]).to(self.local_rank), Variable(samples[1]).to(self.local_rank)
             self.optimizer.zero_grad()
             output = self.ddp_model(data)
             soble_loss,mse = self.loss_object(target, output)
@@ -251,7 +284,7 @@ class ddpTrainer:
         MSE = []
         with torch.no_grad():
             for bidx, samples in enumerate(self.test_dataloader):
-                data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
+                data, target = Variable(samples[0]).to(self.local_rank), Variable(samples[1]).to(self.local_rank)
                 pred = self.ddp_model(data)
                 soble_loss,mse = self.loss_object(target, pred)
 
@@ -313,8 +346,8 @@ class ddpTrainer:
             val_loss      = aggregated_val_loss.cpu().item(),
             val_feature   = val_feature.cpu().item(),
             val_mse       = val_mse.cpu().item(),
-            relative_loss = relative_loss,
-            ssim_values   = avg_ssim)
+            val_maxrel = relative_loss,
+            val_ssim   = avg_ssim)
  
         if relative_loss < self.best_loss:
             self.best_loss = relative_loss
@@ -336,7 +369,7 @@ class ddpTrainer:
             T = []
             with torch.no_grad():
                 for bidx, samples in enumerate(self.test_dataloader):
-                    data, target = Variable(samples[0]).to(self.rank), Variable(samples[1]).to(self.rank)
+                    data, target = Variable(samples[0]).to(self.local_rank), Variable(samples[1]).to(self.local_rank)
                     pred = self.ddp_model(data)
                     P.append(pred.detach().cpu().numpy())
                     T.append(target.detach().cpu().numpy())
@@ -348,7 +381,7 @@ class ddpTrainer:
 
     def save(self, save_hist=True):
         if self.rank == 0:
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % self.rank}
+            map_location = {'cuda:%d' % 0: 'cuda:%d' % self.local_rank}
             model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
             self.ddp_model.load_state_dict(torch.load(model_path, map_location=map_location))
 
