@@ -143,3 +143,49 @@ class IntensityDataset(Dataset):
                 return file_idx, global_idx - running_total
             running_total += file_length
         raise IndexError("Index out of range")
+
+class LargeDataset(Dataset):
+    def __init__(self,x,y,transform=None):
+        self.x = x
+        self.y = y
+        self.transform = transform
+    def __len__(self):
+        return self.get_file_length()
+        
+    def get_file_length(self):
+        with h5.File(self.data_path, 'r') as hdf5_file:
+            intensity = hdf5_file['output']
+            return intensity.shape[0]
+
+    def __getitem__(self, idx):
+        # Load the specific data from the file
+        x_sample = self.x[idx]
+        y_sample = self.y[idx]
+        if self.transform:
+            x_sample = self.transform(x_sample)
+        return x_sample,y_sample
+class AddGaussianNoise(object):
+    def __init__(self, means, stds):
+        assert len(means) == len(stds), "Means and stds must have the same length"
+        self.means = means
+        self.stds = stds
+
+    def __call__(self, tensor):
+        noisy_tensor = tensor.clone()
+        for i in range(len(self.means)):
+            noise = torch.randn(tensor[:, i, :, :, :].size()) * self.stds[i] + self.means[i]
+            noisy_tensor[:, i, :, :, :] += noise
+        return noisy_tensor
+
+    def __repr__(self):
+        return self.__class__.__name__ + f'(means={self.means}, stds={self.stds})'
+if __name__ == '__main__':
+    with h5.File('/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5','r') as f:
+        x = np.array(f['input'])
+        y = np.array(f['output'])
+    xtr,ytr = torch.tensor(x[:10]),torch.tensor(y[:10])
+    means = [0.0, 1.0, 1.0]
+    stds = [0.02, 0.04, 0.04]
+
+    noise_transform = AddGaussianNoise(means=means, stds=stds)
+    train_dataset = LargeDataset(xtr, ytr, transform=noise_transform)
