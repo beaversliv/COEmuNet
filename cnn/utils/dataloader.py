@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 
 import logging
 import time
-
+from sklearn.model_selection      import train_test_split 
 logger = logging.getLogger(__name__)
 ### custom transformations ###
 class CustomTransform:
@@ -150,12 +150,7 @@ class LargeDataset(Dataset):
         self.y = y
         self.transform = transform
     def __len__(self):
-        return self.get_file_length()
-        
-    def get_file_length(self):
-        with h5.File(self.data_path, 'r') as hdf5_file:
-            intensity = hdf5_file['output']
-            return intensity.shape[0]
+        return len(self.x)
 
     def __getitem__(self, idx):
         # Load the specific data from the file
@@ -173,19 +168,9 @@ class AddGaussianNoise(object):
     def __call__(self, tensor):
         noisy_tensor = tensor.clone()
         for i in range(len(self.means)):
-            noise = torch.randn(tensor[:, i, :, :, :].size()) * self.stds[i] + self.means[i]
-            noisy_tensor[:, i, :, :, :] += noise
+            noise = torch.randn(tensor[i, :, :, :].size()) * self.stds[i] + self.means[i]
+            noisy_tensor[i, :, :, :] += noise
         return noisy_tensor
 
     def __repr__(self):
         return self.__class__.__name__ + f'(means={self.means}, stds={self.stds})'
-if __name__ == '__main__':
-    with h5.File('/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5','r') as f:
-        x = np.array(f['input'])
-        y = np.array(f['output'])
-    xtr,ytr = torch.tensor(x[:10]),torch.tensor(y[:10])
-    means = [0.0, 1.0, 1.0]
-    stds = [0.02, 0.04, 0.04]
-
-    noise_transform = AddGaussianNoise(means=means, stds=stds)
-    train_dataset = LargeDataset(xtr, ytr, transform=noise_transform)
