@@ -12,7 +12,7 @@ from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR,CosineAnnealingLR,CyclicLR
 from utils.preprocessing  import preProcessing,get_data
-
+from utils.dataloader     import AddGaussianNoise,LargeDataset
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -77,18 +77,23 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5')
+    with h5.File('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5','r') as f:
+        x = np.array(f['input'][:50])
+        y = np.array(f['output'][:50])
     # x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
     # train test split
     xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr = xtr + np.random.normal(0,0.1,xtr.shape) # add Gaussian noise
     xtr = torch.tensor(xtr,dtype=torch.float32)
     ytr = torch.tensor(ytr,dtype=torch.float32)
     xte = torch.tensor(xte,dtype=torch.float32)
     yte = torch.tensor(yte,dtype=torch.float32)
+    # add Gaussian noise
+    means = [0.0, 1.0,0.97]
+    stds = [0.071, 0.036, 0.028]
 
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
+    noise_transform = AddGaussianNoise(means=means, stds=stds)
+    train_dataset = LargeDataset(xtr, ytr, transform=noise_transform)
+    test_dataset = LargeDataset(xte, yte,transform=None)
 
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
@@ -113,9 +118,10 @@ def main():
     # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
     # scheduler = CyclicLR(optimizer,base_lr=4*1e-4,max_lr=4*1e-2,step_size_up=100,mode='triangular',cycle_momentum=False)
+    scheduler = StepLR(optimizer,step_size=10,gamma=0.1)
     loss_object = FreqMae(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=None)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=scheduler)
     
     # Run the training and testing
     ### start training ###
