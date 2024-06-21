@@ -25,7 +25,7 @@ def map_indices_to_files(indices, offsets):
         file_mapped_indices[file_idx].append(local_idx)
     return file_mapped_indices
 
-def split_and_save(files, indices, train_prefix, test_output, max_train_size=15 * 1024 * 1024 * 1024):
+def split_and_save(files, indices, train_prefix, test_output, max_train_size=15 * 1024 * 1024 * 1024): 
     """Split data into training and testing sets, saving results to multiple training files."""
     train_data = []
     test_data = []
@@ -83,6 +83,6 @@ def generate_indices(files, test_size=0.2, random_state=42):
 
 if __name__ =='__main__':
 
-    files = ['file1.h5', 'file2.h5']  # Replace with your actual file paths
+    files = ['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5', '/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy1.hdf5','/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy2.hdf5']  # Replace with your actual file paths
     indices = generate_indices(files)
     split_and_save(files, indices, 'train', 'test.h5')
