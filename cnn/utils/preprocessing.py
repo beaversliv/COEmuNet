@@ -1,12 +1,13 @@
 import h5py  as h5
 import numpy as np
-
 class preProcessing:
-    def __init__(self,path):
-        self.path = path
+    def __init__(self,data_path,stats_path):
+        self.data_path = data_path
+        self.meta = {}
+        self.stats_path = stats_path
 
     def outliers(self):
-        with h5.File(self.path,'r') as sample:
+        with h5.File(self.data_path,'r') as sample:
             x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
             y = np.array(sample['output'], np.float32)# shape(num_samples,64,64,1)
         # take logrithm
@@ -26,43 +27,53 @@ class preProcessing:
 
     def get_data(self):
         x , y = self.outliers()
-        meta = {}
 
+        feature = ['vel','temp','co']
         x_t = np.transpose(x, (1, 0, 2, 3, 4))
-        for idx in [0]:
-            meta[idx] = {}
-            meta[idx]['mean'] = x_t[idx].mean()
-            meta[idx]['std'] = x_t[idx].std()
-            x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
-        
-        for idx in [1, 2]:
-            meta[idx] = {}
-            meta[idx]['min'] = np.min(x_t[idx])
-            meta[idx]['median'] = np.median(x_t[idx])
-            x_t[idx] = np.log(x_t[idx])
-            
-            x_t[idx] = x_t[idx] - np.min(x_t[idx])
-            x_t[idx] = x_t[idx]/np.median(x_t[idx])
-        
+        for idx in range(3):
+            if idx == 0:
+                self.meta[feature[idx]] = {}
+                self.meta[feature[idx]]['mean'] = x_t[idx].mean()
+                self.meta[feature[idx]]['std'] = x_t[idx].std()
+                x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
+            else:
+                self.meta[feature[idx]] = {}
+                self.meta[feature[idx]]['min'] = np.min(x_t[idx])
+                self.meta[feature[idx]]['median'] = np.median(x_t[idx])
+                x_t[idx] = np.log(x_t[idx])
+                
+                x_t[idx] = x_t[idx] - np.min(x_t[idx])
+                x_t[idx] = x_t[idx]/np.median(x_t[idx])
+        print(f'pre-processing value:{self.meta}\n')
+
         y[y == 0] = np.min(y[y != 0])
         y = np.log(y)
-        print('min',np.min(y))
-        print('max',np.max(y))
-        # y = y-np.min(y)
-        # print('median',np.median(y))
-        # y = y/np.median(y)
-        y = (y - np.min(y))/(np.max(y)-np.min(y))
+        min_y = np.min(y)
+        y = y-min_y
+
+        median_y = np.median(y)
+        y = y/median_y
+        self.meta['y'] = {'min':min_y, 'meidan':median_y}
+
+        self.save_meta_hdf5(self.meta, self.stats_path)
         return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
+    def save_meta_hdf5(self,meta, filename='meta.h5'):
+        with h5.File(filename, 'w') as f:
+            for key, subdict in meta.items():
+                grp = f.create_group(key)
+                for subkey, value in subdict.items():
+                    grp.create_dataset(subkey, data=value)
+
 def get_data(path):
     with h5.File(path,'r') as sample:
         x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
         y = np.array(sample['output'], np.float32)
     return x,y
 if __name__ == '__main__':
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5')
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5','/home/dc-su2/physical_informed/cnn/statistic/rotation_stats.hdf5')
     x,y = data_gen.get_data()
-    with h5.File('/home/dc-su2/rds/rds-dirac-dr004/Magritte/minmax_random_grid64_data0.hdf5','w') as file:
-        file['input'] = x
-        file['output'] = y
-    print(x.shape,y.shape)
-    print('saved!')
+    # with h5.File('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5','w') as file:
+    #     file['input'] = x
+    #     file['output'] = y
+    # print(x.shape,y.shape)
+    # print('saved!')
