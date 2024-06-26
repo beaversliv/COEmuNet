@@ -3,6 +3,7 @@ dataset:
   path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5"
   grid: 64
   batch_size: 128
+  df: 0.1
   statistics:
     min: -50.24472
     max: -29.520607

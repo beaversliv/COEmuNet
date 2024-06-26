@@ -7,7 +7,7 @@ from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR
 from utils.preprocessing  import preProcessing
-from utils.ResNet3DModel  import FinetuneNet
+from utils.ResNet3DModel  import Net
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config

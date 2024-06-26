@@ -46,11 +46,13 @@ def parse_args():
     parser.add_argument('--grid',type=int,help='grid of hydro model:[32,64,128]')
     parser.add_argument('--batch_size', type=int, help='Override batch size')
     parser.add_argument('--seed', type=int, help='Override seed')
+    parser.add_argument('--df',type=float)
 
     parser.add_argument('--lr', type=float)
     parser.add_argument('--epochs', type=int)
     parser.add_argument('--alpha', type=float, help='weight for feature loss')
     parser.add_argument('--beta', type=float, help='weight for MSE')
+    parser.add_argument('--weight_decay', type=float, help='regulerizaton')
     
     parser.add_argument('--save_path', type=str)
     parser.add_argument('--logfile', type=str,help='training history')
@@ -71,12 +73,16 @@ def merge_config(args, config):
         config['dataset']['batch_size'] = args.batch_size
     if args.seed is not None:
         config['model']['seed'] = args.seed
+    if args.df is not None:
+        config['dataset']['df'] = args.df
     if args.epochs is not None:
         config['model']['epochs'] = args.epochs
     if args.alpha is not None:
         config['model']['alpha'] = args.alpha
     if args.beta is not None:
         config['model']['beta']  = args.beta
+    if args.weight_decay is not None:
+        config['optimizer']['weight_decay'] = args.weight_decay
     if args.save_path is not None:
         config['output']['save_path'] = args.save_path
     if args.logfile is not None:
@@ -88,7 +94,6 @@ def merge_config(args, config):
     if 'optimizer' in config and config['optimizer']['type'] == 'adam':
         if args.lr:
             config['optimizer']['params']['lr'] = args.lr
-
     config = OrderedDict(config)
     return config
 if __name__ == "__main__":

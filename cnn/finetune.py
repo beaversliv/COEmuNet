@@ -2,18 +2,19 @@ import warnings
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=RuntimeWarning)
     from utils.so3_model      import SO3Net
-
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, random_split
 import torch.multiprocessing  as mp
 import torch.distributed      as dist
 from torch.autograd           import Variable
-from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler
+from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler,random_split
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR,CosineAnnealingLR,CyclicLR
 from utils.preprocessing  import preProcessing,get_data
-from utils.loss           import SobelMse,FreqMse,SobelMae,FreqMae,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.dataloader     import AddGaussianNoise,CustomDataset,AddGaussianNoise,AddUniformNoise
+from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
 from utils.ResNet3DModel  import Net
@@ -76,43 +77,50 @@ def main():
     np.random.seed(config['model']['seed'])
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
-
-    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5')
+    
+    dataset = CustomDataset('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5')
+    lows,hights = [-0.1,-0.2,-0.2],[0.1,0.2,0.2]
+    noise_transform = AddUniformNoise(lows, hights)
+    # x,y = get_data(config['dataset']['path'])
     # x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
     # train test split
-    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
+    train_size = int(0.8 * len(dataset))
+    val_size = int(0.1 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
 
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+
+    # Apply the noise transformation only to the training dataset
+    train_dataset.dataset.transform = noise_transform
 
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
+    val_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
 
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
 
-    model = SO3Net()
+    model = Net(64)
     model = model.to(local_rank)
-    # model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    # map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    # model.load_state_dict(torch.load(model_dict, map_location=map_location))
+    map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
+    model.load_state_dict(torch.load(model_dic, map_location=map_location))
+    # checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
+    # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
+    # model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    scheduler = StepLR(optimizer,step_size=25,gamma=0.1)
     # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
     # scheduler = CyclicLR(optimizer,base_lr=4*1e-4,max_lr=4*1e-2,step_size_up=100,mode='triangular',cycle_momentum=False)
-    loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
+    scheduler = StepLR(optimizer,step_size=10,gamma=0.1)
+    loss_object = FreqMae(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=scheduler)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=None)
     
     # Run the training and testing
     ### start training ###

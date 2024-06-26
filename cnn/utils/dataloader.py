@@ -6,7 +6,7 @@ import warnings
 warnings.filterwarnings('error', category=RuntimeWarning)
 # torch related
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader,random_split
 
 import logging
 import time
@@ -143,22 +143,6 @@ class IntensityDataset(Dataset):
                 return file_idx, global_idx - running_total
             running_total += file_length
         raise IndexError("Index out of range")
-
-class LargeDataset(Dataset):
-    def __init__(self,x,y,transform=None):
-        self.x = x
-        self.y = y
-        self.transform = transform
-    def __len__(self):
-        return len(self.x)
-
-    def __getitem__(self, idx):
-        # Load the specific data from the file
-        x_sample = self.x[idx]
-        y_sample = self.y[idx]
-        if self.transform:
-            x_sample = self.transform(x_sample)
-        return x_sample,y_sample
 class AddGaussianNoise(object):
     def __init__(self, means, stds):
         assert len(means) == len(stds), "Means and stds must have the same length"
@@ -174,3 +158,51 @@ class AddGaussianNoise(object):
 
     def __repr__(self):
         return self.__class__.__name__ + f'(means={self.means}, stds={self.stds})'
+class AddUniformNoise(object):
+    def __init__(self, lows=-0.1, highs=0.1):
+        self.lows = lows
+        self.highs = highs
+
+    def __call__(self, tensor):
+        noisy_tensor = tensor.clone()
+        for i in range(3):
+            noise = (torch.rand(tensor[i, :, :, :].size()) * (self.highs[i] - self.lows[i]) + self.lows[i])
+            noisy_tensor[i,:,:,:] += noise
+        return noisy_tensor
+
+    def __repr__(self):
+        return self.__class__.__name__ + f'(low={self.low}, high={self.high})'
+class CustomDataset(Dataset):
+    def __init__(self, file_path, transform=None):
+        self.file_path = file_path
+        self.transform = transform
+        with h5.File(self.file_path, 'r') as f:
+            self.data_len = f['input'].shape[0]
+
+    def __len__(self):
+        return self.data_len
+
+    def __getitem__(self, idx):
+        with h5.File(self.file_path, 'r') as f:
+            x = np.array(f['input'][idx],dtype=np.float32)
+            y = np.array(f['output'][idx],dtype=np.float32)
+        x = torch.tensor(x)
+        y = torch.tensor(y)
+        if self.transform:
+            x = self.transform(x)
+
+        return x,y
+if __name__ == '__main__':
+    dataset = CustomDataset('/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5')
+    # train test split
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.2 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    lows,hights = [-0.1,-0.2,-0.2],[0.1,0.2,0.2]
+    noise_transform = AddUniformNoise(lows, hights)
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+    train_dataset.dataset.transform = noise_transform
+    train_dataloader = DataLoader(train_dataset, batch_size=10)
+
+    for bidx,sample in enumerate(train_dataloader):
+        x,y = sample[0],sample[1]
