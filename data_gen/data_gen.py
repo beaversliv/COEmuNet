@@ -68,20 +68,28 @@ def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
         position = position
         velocity = velocity
     else:
-        # Create a random rotation in radians around a random axis
-        #random_axis = np.random.rand(3)
-        #random_axis /= np.linalg.norm(random_axis)
-        #random_angles = np.random.uniform(0, 2 * np.pi)
-        random_axis = np.array([0.0,0.0,1.0])
-        random_angles = np.pi/2
-        # Create a rotation object and get the rotation matrix
-        r = Rotation.from_rotvec(random_angles * random_axis)
-        position = r.apply(position)
+        x = np.random.normal(size=1)
+        y = np.random.normal(size=1)
+        z = np.random.normal(size=1)
 
+        norm = np.sqrt(x**2 + y**2 + z**2)
+        x /= norm
+        y /= norm
+        z /= norm
+        random_axis = np.array([x,y,z]).flatten()
+        # Generate a random rotation angle between 0 and 2*pi
+        random_angle = np.random.uniform(0, 2 * np.pi)
+        # random_axis = np.array([0.0,0.5,0.5])
+        # random_axis /= np.linalg.norm(random_axis)
+        # random_angles = np.pi
+
+        r = Rotation.from_rotvec(random_angle * random_axis)
         rotation_matrix = r.as_matrix()
+        position = np.matmul(rotation_matrix,position.T)
+        position = position.T
         velocity = np.matmul(rotation_matrix,velocity.T)
         velocity = velocity.T
-
+       
     v_x = velocity[:,0]
     v_y = velocity[:,1]
     v_z = velocity[:,2]
