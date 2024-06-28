@@ -23,6 +23,38 @@ import time
 import logging
 import sys
 import math 
+def generate_random_rotation_matrix():
+    """
+    Generate a random rotation matrix using James Avro's method.
+
+    Returns:
+    numpy.ndarray: A 3x3 rotation matrix.
+    """
+    # Step 1: Generate a random unit vector uniformly distributed on the unit sphere
+    u = np.random.uniform(0, 1, 3)
+    theta = 2 * np.pi * u[0]
+    phi = np.arccos(1 - 2 * u[1])
+    
+    x = np.sin(phi) * np.cos(theta)
+    y = np.sin(phi) * np.sin(theta)
+    z = np.cos(phi)
+    axis = np.array([x, y, z])
+    
+    # Step 2: Generate a random angle for rotation about this vector
+    angle = 2 * np.pi * np.random.uniform(0, 1)
+    
+    # Step 3: Construct the rotation matrix using the axis-angle representation
+    r = Rotation.from_rotvec(angle * axis)
+    R = r.as_matrix()
+
+    # Using Rodrigues' rotation formula
+    # K = np.array([[0, -axis[2], axis[1]],
+    #               [axis[2], 0, -axis[0]],
+    #               [-axis[1], axis[0], 0]])
+    
+    # R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
+    
+    return R
 
 def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
     with h5.File(model_file,'r') as f:
@@ -68,23 +100,12 @@ def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
         position = position
         velocity = velocity
     else:
-        x = np.random.normal(size=1)
-        y = np.random.normal(size=1)
-        z = np.random.normal(size=1)
-
-        norm = np.sqrt(x**2 + y**2 + z**2)
-        x /= norm
-        y /= norm
-        z /= norm
-        random_axis = np.array([x,y,z]).flatten()
-        # Generate a random rotation angle between 0 and 2*pi
-        random_angle = np.random.uniform(0, 2 * np.pi)
-        # random_axis = np.array([0.0,0.5,0.5])
-        # random_axis /= np.linalg.norm(random_axis)
-        # random_angles = np.pi
-
-        r = Rotation.from_rotvec(random_angle * random_axis)
-        rotation_matrix = r.as_matrix()
+        rotation_matrix = generate_random_rotation_matrix()
+        # random_axis = np.array([0.0,0.0,0.1])
+        # # random_axis /= np.linalg.norm(random_axis)
+        # random_angle = 2*np.pi
+        # r = Rotation.from_rotvec(random_angle * random_axis)
+        # rotation_matrix = r.as_matrix()
         position = np.matmul(rotation_matrix,position.T)
         position = position.T
         velocity = np.matmul(rotation_matrix,velocity.T)
@@ -164,7 +185,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="A script with command-line arguments")
     parser.add_argument('--type', type = str, default = "Specify the type (or,r1,r2)")
     parser.add_argument('--model_grid', type = int, default = 64)
-    parser.add_argument('--mulfreq', type = bool, default = False,help="Flag to indicate if multiple frequencies should be used (default: False)")
+    parser.add_argument('--mulfreq', action='store_true', default = False,help="Flag to indicate if multiple frequencies should be used (default: False)")
 
     args = parser.parse_args()
     return args
