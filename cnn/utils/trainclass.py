@@ -10,12 +10,14 @@ from torch.profiler import profile, record_function, ProfilerActivity
 from .loss                 import calculate_ssim_batch,MaxRel
 from tqdm                 import tqdm
 import numpy as np
+import h5py  as h5
 import os
 import sys
 import json
 import pickle
 import logging
-
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 class Logging:
     def __init__(self, file_dir:str, file_name:str):
         if not os.path.exists(file_dir):
@@ -62,7 +64,9 @@ class Trainer:
         self.logger = logger
         self.best_loss = float('inf')  # Initialize best loss
         self.patience_counter = 0
-        self.dataset_stats = config['dataset']['statistics']
+        statistics_path = config['dataset']['statistics']['path']
+        statistics_values = config['dataset']['statistics']['values']
+        self.dataset_stats  = load_statistics(statistics_path,statistics_values)
     
     def train(self):
         total_loss = 0.
@@ -75,6 +79,10 @@ class Trainer:
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
             output = self.model(data)
+            print(data.shape)
+            print(target.shape)
+            print(output.shape)
+            sys.exit()
             soble_loss,mse = self.loss_object(target, output)
             loss = soble_loss + mse
             
@@ -192,8 +200,8 @@ class Trainer:
                 print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
     def postProcessing(self, target,pred):
         def transformation(y):
-            min_   = self.dataset_stats['min']
-            median = self.dataset_stats['median']
+            min_   = self.dataset_stats['intensity']['min']
+            median = self.dataset_stats['intensity']['median']
             # max_   = self.dataset_stats['max']
             y = y*median + min_
             # y = y*(max_ - min_)+min_
@@ -232,6 +240,16 @@ class ddpLogging:
         # Convert log entry to a JSON string
         message = json.dumps(log_entry)
         self.info(message, gpu_rank, console)
+def load_statistics(stat_path, statistics):
+    stats = {}
+    with h5.File(stat_path, 'r') as f:
+        for stat in statistics:
+            name = stat['name']
+            stats[name] = {}
+            for key, h5_path in stat.items():
+                if key != 'name':
+                    stats[name][key] = f[h5_path][()]
+    return stats
  ### train step ###       
 class ddpTrainer:
     def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,local_rank,world_size,scheduler=None):
@@ -250,7 +268,10 @@ class ddpTrainer:
         self.logger           = ddpLogging(config['output']['save_path'], config['output']['logfile'])
         self.best_loss        = float('inf')  # Initialize best loss
         self.patience_counter = 0
-        self.dataset_stats    = config['dataset']['statistics']
+
+        statistics_path = config['dataset']['statistics']['path']
+        statistics_values = config['dataset']['statistics']['values']
+        self.dataset_stats  = load_statistics(statistics_path,statistics_values)
                                        
     def train(self):
         total_loss = 0.
@@ -412,9 +433,8 @@ class ddpTrainer:
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)
     def postProcessing(self,y):
-        min_   = self.dataset_stats['min']
-        median = self.dataset_stats['median']
-        max_   = self.dataset_stats['max']
+        min_   = self.dataset_stats['intensity']['min']
+        median = self.dataset_stats['intensity']['median']
         y = y*median + min_
         # y = y*(max_ - min_)+min_
         y = np.exp(y)

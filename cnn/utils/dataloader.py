@@ -15,34 +15,54 @@ logger = logging.getLogger(__name__)
 ### custom transformations ###
 class CustomTransform:
     def __init__(self,file_statistics):
-        self.file_statistics = file_statistics
-        with open(file_statistics,'rb') as pkl_file:
-            self.statistics = pickle.load(pkl_file)
+        self.statistics = self._read_statistics(file_statistics)
+    def _read_statistics(self, file_path):
+        with h5.File(file_path, 'r') as f:
+            statistics = {
+                'velocity': {
+                    'mean': f['vel']['mean'][()],
+                    'std': f['vel']['std'][()]
+                },
+                # Add other features as needed
+                'temperature': {
+                    'min': f['temp']['min'][()],
+                    'median': f['temp']['median'][()]
+                },
+                'density': {
+                    'min': f['co']['min'][()],
+                    'median': f['co']['median'][()]
+                },
+                'intensity':{
+                    'min':f['co']['min'][()],
+                    'median': f['co']['median'][()],
+                }
+            }
+        return statistics
     
     def __call__(self,x,y):
         xt = x.copy()
         yt = y.copy()
         # single x, y
-        xt[0] = (xt[0]-self.statistics['vz'][0])/self.statistics['vz'][1]
+        xt[0] = (xt[0]-self.statistics['velocity']['mean'])/self.statistics['velocity']['std']
 
         try:
             xt[1] = np.log(xt[1],dtype=np.float32)
         except RuntimeWarning:
             xt[1] = np.log(xt[1] + 1e-10, dtype=np.float32)
-        xt[1] = xt[1] - self.statistics['temp'][0]
-        xt[1] = xt[1]/self.statistics['temp'][1]
+        xt[1] = xt[1] - self.statistics['temperature']['min']
+        xt[1] = xt[1]/self.statistics['temperature']['median']
         try:
             xt[2] = np.log(xt[2],dtype=np.float32)
         except RuntimeWarning:
             xt[2] = np.log(xt[2] + 1e-10, dtype=np.float32)
-        xt[2] = xt[2] - self.statistics['co'][0]
-        xt[2] = xt[2]/self.statistics['co'][1]
+        xt[2] = xt[2] - self.statistics['density']['min']
+        xt[2] = xt[2]/self.statistics['density']['median']
 
         y_v = yt.reshape(-1)
         yt = np.where(yt == 0, np.min(y_v[y_v != 0]), yt)
         yt = np.log(yt)
-        yt = yt-self.statistics['y'][0]
-        yt = yt/self.statistics['y'][1]
+        yt = yt-self.statistics['intensity']['min']
+        yt = yt/self.statistics['intensity']['median']
         yt = np.transpose(yt,(2,0,1))
         
         # convert to tensor
@@ -122,7 +142,6 @@ class IntensityDataset(Dataset):
         with h5.File(self.file_paths[file_idx], 'r') as hdf5_file:
             x = np.array(hdf5_file['input'][file_local_idx], dtype=np.float32)
             y = np.array(hdf5_file['output'][file_local_idx], dtype=np.float32)
-
         if self.transform:
             xt,yt = self.transform(x, y)
         else: 
@@ -193,16 +212,20 @@ class CustomDataset(Dataset):
 
         return x,y
 if __name__ == '__main__':
-    dataset = CustomDataset('/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5')
+    transform = CustomTransform('/home/dc-su2/physical_informed/cnn/statistic/random.hdf5')
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5'],transform=transform)
+    
     # train test split
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))
     test_size = len(dataset) - train_size - val_size
-    lows,hights = [-0.1,-0.2,-0.2],[0.1,0.2,0.2]
-    noise_transform = AddUniformNoise(lows, hights)
+    # lows,hights = [-0.1,-0.2,-0.2],[0.1,0.2,0.2]
+    # noise_transform = AddUniformNoise(lows, hights)
     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
-    train_dataset.dataset.transform = noise_transform
-    train_dataloader = DataLoader(train_dataset, batch_size=10)
+
+    # train_dataset.dataset.transform = noise_transform
+    train_dataloader = DataLoader(train_dataset, batch_size=30)
 
     for bidx,sample in enumerate(train_dataloader):
         x,y = sample[0],sample[1]
+        print(y.shape)

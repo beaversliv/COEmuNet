@@ -4,10 +4,12 @@ dataset:
   grid: 64
   batch_size: 128
   df: 0.1
-  statistics:
-    min: -50.24472
-    max: -29.520607
-    median: 11.025192
+  statistics: 
+    path: "/home/dc-su2/physical_informed/cnn/statistic/random.hdf5"
+    values:
+      - name: intensity
+        min : 'y/min'
+        median: 'y/meidan'
 
 model:
   seed: 1234
