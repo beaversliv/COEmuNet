@@ -1,11 +1,14 @@
 dataset:
   name: "faceon"
-  path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_faceon_grid64_data0.hdf5"
+  path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5"
   grid: 64
   batch_size: 128
-  statistics:
-    min: -47.387955
-    median: 8.168968
+  statistics: 
+    path: "/home/dc-su2/physical_informed/cnn/statistic/faceon.hdf5"
+    values:
+      - name: intensity
+        min : 'y/min'
+        median: 'y/median'
 
 model:
   seed: 1234

@@ -1,5 +1,5 @@
 dataset:
-  name: "faceon"
+  name: "random"
   path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5"
   grid: 64
   batch_size: 128
