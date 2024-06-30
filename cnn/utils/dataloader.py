@@ -7,16 +7,27 @@ warnings.filterwarnings('error', category=RuntimeWarning)
 # torch related
 import torch
 from torch.utils.data import Dataset, DataLoader,random_split
-
+from torchvision.transforms   import Compose
 import logging
 import time
 from sklearn.model_selection      import train_test_split 
 logger = logging.getLogger(__name__)
+### custom compose class, handles two arguments x and y
+class CustomCompose:
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, x, y):
+        for transform in self.transforms:
+            x, y = transform(x, y)
+        return x, y
+
+    def __repr__(self):
+        return self.__class__.__name__ + f'({self.transforms})'
 ### custom transformations ###
 class PreProcessingTransform:
     def __init__(self,file_statistics):
         self.statistics = self._read_statistics(file_statistics)
-        print(self.statistics)
     def _read_statistics(self, file_path):
         with h5.File(file_path, 'r') as f:
             statistics = {
@@ -176,7 +187,7 @@ class AddGaussianNoise1(object):
     def __init__(self,scale_factor=0.1):
         self.scale_factor = scale_factor
 
-    def __call__(self, tensor):
+    def __call__(self,x,tensor):
         noisy_tensor = tensor.clone()
         for i in range(3):
             # Calculate the standard deviation for each feature slice
@@ -185,7 +196,7 @@ class AddGaussianNoise1(object):
             mean_ = 0.0
             noise = torch.randn(tensor[i, :, :, :].size()) * (self.scale_factor * std) + mean_
             noisy_tensor[i, :, :, :] += noise 
-        return noisy_tensor
+        return x,noisy_tensor
 
     def __repr__(self):
         return self.__class__.__name__ + f'(means={self.means}, scale_factor={self.scale_factor})'
@@ -211,6 +222,7 @@ class AddUniformNoise(object):
         self.highs = highs
 
     def __call__(self, tensor):
+       
         noisy_tensor = tensor.clone()
         for i in range(3):
             noise = (torch.rand(tensor[i, :, :, :].size()) * (self.highs[i] - self.lows[i]) + self.lows[i])
@@ -240,7 +252,11 @@ class CustomDataset(Dataset):
 
         return x,y
 if __name__ == '__main__':
-    transform = CustomTransform('/home/dc-su2/physical_informed/cnn/statistic/random.hdf5')
+
+    transform = CustomCompose( [PreProcessingTransform('/home/dc-su2/physical_informed/cnn/statistic/random.hdf5'),
+                    AddGaussianNoise1(scale_factor=0.1)
+    ])
+    # transform = PreProcessingTransform('/home/dc-su2/physical_informed/cnn/statistic/random.hdf5')
     dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5'],transform=transform)
     
     # train test split
@@ -256,3 +272,4 @@ if __name__ == '__main__':
 
     for bidx,sample in enumerate(train_dataloader):
         x,y = sample[0],sample[1]
+        print(y.shape)

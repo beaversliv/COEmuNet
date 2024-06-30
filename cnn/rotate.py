@@ -8,12 +8,12 @@ import torch.multiprocessing  as mp
 import torch.distributed      as dist
 from torch.autograd           import Variable
 from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler,random_split
-from torchvision.transforms   import Compose
+
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR,CosineAnnealingLR,CyclicLR
 
-from utils.dataloader     import PreProcessingTransform,IntensityDataset,AddGaussianNoise1
+from utils.dataloader     import PreProcessingTransform,IntensityDataset,AddGaussianNoise1,CustomCompose
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -83,7 +83,7 @@ def main():
     # feature_stds = [1.1079,0.3765,0.2643]
     # stds = [s*config['dataset']['df'] for s in feature_stds]
 
-    transform = Compose( [PreProcessingTransform(config['dataset']['statistics']['path']),
+    transform = CustomCompose( [PreProcessingTransform(config['dataset']['statistics']['path']),
                     AddGaussianNoise1(scale_factor=0.1)
     ])
 
