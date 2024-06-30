@@ -9,7 +9,7 @@ dataset:
     values:
       - name: intensity
         min : 'y/min'
-        median: 'y/meidan'
+        median: 'y/median'
 
 model:
   seed: 1234
