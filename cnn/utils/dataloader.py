@@ -13,9 +13,10 @@ import time
 from sklearn.model_selection      import train_test_split 
 logger = logging.getLogger(__name__)
 ### custom transformations ###
-class CustomTransform:
+class PreProcessingTransform:
     def __init__(self,file_statistics):
         self.statistics = self._read_statistics(file_statistics)
+        print(self.statistics)
     def _read_statistics(self, file_path):
         with h5.File(file_path, 'r') as f:
             statistics = {
@@ -33,8 +34,8 @@ class CustomTransform:
                     'median': f['co']['median'][()]
                 },
                 'intensity':{
-                    'min':f['co']['min'][()],
-                    'median': f['co']['median'][()],
+                    'min':f['y']['min'][()],
+                    'median': f['y']['median'][()],
                 }
             }
         return statistics
@@ -45,16 +46,14 @@ class CustomTransform:
         # single x, y
         xt[0] = (xt[0]-self.statistics['velocity']['mean'])/self.statistics['velocity']['std']
 
-        try:
-            xt[1] = np.log(xt[1],dtype=np.float32)
-        except RuntimeWarning:
-            xt[1] = np.log(xt[1] + 1e-10, dtype=np.float32)
+        
+        xt[1] = np.log(xt[1],dtype=np.float32)
         xt[1] = xt[1] - self.statistics['temperature']['min']
         xt[1] = xt[1]/self.statistics['temperature']['median']
-        try:
-            xt[2] = np.log(xt[2],dtype=np.float32)
-        except RuntimeWarning:
-            xt[2] = np.log(xt[2] + 1e-10, dtype=np.float32)
+        # try:
+        xt[2] = np.log(xt[2],dtype=np.float32)
+        # except RuntimeWarning:
+        #     xt[2] = np.log(xt[2] + 1e-10, dtype=np.float32)
         xt[2] = xt[2] - self.statistics['density']['min']
         xt[2] = xt[2]/self.statistics['density']['median']
 
@@ -142,6 +141,8 @@ class IntensityDataset(Dataset):
         with h5.File(self.file_paths[file_idx], 'r') as hdf5_file:
             x = np.array(hdf5_file['input'][file_local_idx], dtype=np.float32)
             y = np.array(hdf5_file['output'][file_local_idx], dtype=np.float32)
+        if self.remove_outlier(y):
+            return self.__getitem__((idx + 1) % self.__len__())  # Skip to the next sample
         if self.transform:
             xt,yt = self.transform(x, y)
         else: 
@@ -162,6 +163,33 @@ class IntensityDataset(Dataset):
                 return file_idx, global_idx - running_total
             running_total += file_length
         raise IndexError("Index out of range")
+    def remove_outlier(self,y):
+        y[y == 0] = np.min(y[y != 0])
+        y = np.log(y)
+        if np.min(y) <= -50:
+            return True
+        return False
+class AddGaussianNoise1(object):
+    '''
+    calculate std for each feature each sample.
+    '''
+    def __init__(self,scale_factor=0.1):
+        self.scale_factor = scale_factor
+
+    def __call__(self, tensor):
+        noisy_tensor = tensor.clone()
+        for i in range(3):
+            # Calculate the standard deviation for each feature slice
+            std = torch.std(tensor[i, :, :, :])
+            # Generate noise with mean 0 and std derived from the feature
+            mean_ = 0.0
+            noise = torch.randn(tensor[i, :, :, :].size()) * (self.scale_factor * std) + mean_
+            noisy_tensor[i, :, :, :] += noise 
+        return noisy_tensor
+
+    def __repr__(self):
+        return self.__class__.__name__ + f'(means={self.means}, scale_factor={self.scale_factor})'
+
 class AddGaussianNoise(object):
     def __init__(self, means, stds):
         assert len(means) == len(stds), "Means and stds must have the same length"
@@ -228,4 +256,3 @@ if __name__ == '__main__':
 
     for bidx,sample in enumerate(train_dataloader):
         x,y = sample[0],sample[1]
-        print(y.shape)
