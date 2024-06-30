@@ -187,19 +187,19 @@ class AddGaussianNoise1(object):
     def __init__(self,scale_factor=0.1):
         self.scale_factor = scale_factor
 
-    def __call__(self,x,tensor):
-        noisy_tensor = tensor.clone()
+    def __call__(self,x,y):
+        noisy_tensor = x.clone()
         for i in range(3):
             # Calculate the standard deviation for each feature slice
-            std = torch.std(tensor[i, :, :, :])
+            std = torch.std(x[i, :, :, :])
             # Generate noise with mean 0 and std derived from the feature
             mean_ = 0.0
-            noise = torch.randn(tensor[i, :, :, :].size()) * (self.scale_factor * std) + mean_
+            noise = torch.randn(x[i, :, :, :].size()) * (self.scale_factor * std) + mean_
             noisy_tensor[i, :, :, :] += noise 
-        return x,noisy_tensor
+        return noisy_tensor,y
 
     def __repr__(self):
-        return self.__class__.__name__ + f'(means={self.means}, scale_factor={self.scale_factor})'
+        return self.__class__.__name__ + f'(scale_factor={self.scale_factor})'
 
 class AddGaussianNoise(object):
     def __init__(self, means, stds):
