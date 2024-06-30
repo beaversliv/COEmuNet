@@ -8,11 +8,12 @@ import torch.multiprocessing  as mp
 import torch.distributed      as dist
 from torch.autograd           import Variable
 from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler,random_split
+from torchvision.transforms   import Compose
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR,CosineAnnealingLR,CyclicLR
-from utils.preprocessing  import preProcessing,get_data
-from utils.dataloader     import AddGaussianNoise,CustomDataset,AddUniformNoise
+
+from utils.dataloader     import PreProcessingTransform,IntensityDataset,AddGaussianNoise1
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -78,23 +79,26 @@ def main():
     torch.cuda.manual_seed_all(config['model']['seed'])
 
     # add Gaussian noise
-    means = [0,0,0]
-    feature_stds = [1.1079,0.3765,0.2643]
-    stds = [s*config['dataset']['df'] for s in feature_stds]
+    # means = [0,0,0]
+    # feature_stds = [1.1079,0.3765,0.2643]
+    # stds = [s*config['dataset']['df'] for s in feature_stds]
 
-    dataset = CustomDataset('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5')
-    noise_transform = AddGaussianNoise(means,stds)
+    transform = Compose( [PreProcessingTransform(config['dataset']['statistics']['path']),
+                    AddGaussianNoise1(scale_factor=0.1)
+    ])
+
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'],transform=transform)
+    # noise_transform = AddGaussianNoise(means,stds)
     # x,y = get_data(config['dataset']['path'])
     # x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
     # train test split
     train_size = int(0.8 * len(dataset))
     val_size = int(0.1 * len(dataset))
     test_size = len(dataset) - train_size - val_size
-
     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
     # Apply the noise transformation only to the training dataset
-    train_dataset.dataset.transform = noise_transform
+    # train_dataset.dataset.transform = noise_transform
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
@@ -115,17 +119,17 @@ def main():
     # Define the optimizer for the DDP model
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
+    scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
     # scheduler = CyclicLR(optimizer,base_lr=4*1e-4,max_lr=4*1e-2,step_size_up=100,mode='triangular',cycle_momentum=False)
-    scheduler = StepLR(optimizer,step_size=10,gamma=0.1)
+    # scheduler = StepLR(optimizer,step_size=10,gamma=0.1)
     loss_object = FreqMae(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=None)
     
     # Run the training and testing
     ### start training ###
-    trainer.eval()
+    # trainer.eval()
 
     start = time.time()
     print(f'rank {rank} starts training\n')
