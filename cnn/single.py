@@ -47,16 +47,13 @@ def main():
     # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     
     # train test split
-    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
+    transform = CustomTransform(config['dataset']['statistics']['path'])
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data.hdf5'],transform=transform)
 
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
-
-    ## torch data loader ###
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.2 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
     train_dataloader = DataLoader(train_dataset, batch_size= config['dataset']['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], shuffle=False)
 
