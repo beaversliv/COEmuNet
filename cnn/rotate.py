@@ -82,10 +82,9 @@ def main():
     # means = [0,0,0]
     # feature_stds = [1.1079,0.3765,0.2643]
     # stds = [s*config['dataset']['df'] for s in feature_stds]
-
-    transform = CustomCompose( [PreProcessingTransform(config['dataset']['statistics']['path']),
-                    AddGaussianNoise1(scale_factor=0.1)
-    ])
+    preprocess_transform = PreprocessTransform(config['dataset']['statistics']['path'])
+    train_transform = CustomCompose([preprocess_transform, AddGaussianNoise(scale_factor=0.1)])
+    test_transform = preprocess_transform
 
     dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'],transform=transform)
     # noise_transform = AddGaussianNoise(means,stds)
@@ -96,9 +95,11 @@ def main():
     val_size = int(0.1 * len(dataset))
     test_size = len(dataset) - train_size - val_size
     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+     # Apply the noise transformation only to the training dataset
+    train_dataset.dataset.transform = train_transform
+    val_dataset.dataset.transform = test_transform
+    test_dataset.dataset.transform = test_transform
 
-    # Apply the noise transformation only to the training dataset
-    # train_dataset.dataset.transform = noise_transform
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
