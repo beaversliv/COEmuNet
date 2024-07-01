@@ -38,11 +38,11 @@ class preProcessing:
                 x_t[idx] = (x_t[idx] - x_t[idx].mean())/x_t[idx].std()
             else:
                 self.meta[feature[idx]] = {}
-                self.meta[feature[idx]]['min'] = np.min(x_t[idx])
-                self.meta[feature[idx]]['median'] = np.median(x_t[idx])
                 x_t[idx] = np.log(x_t[idx])
+                self.meta[feature[idx]]['min'] = np.min(x_t[idx])
                 
                 x_t[idx] = x_t[idx] - np.min(x_t[idx])
+                self.meta[feature[idx]]['median'] = np.median(x_t[idx])
                 x_t[idx] = x_t[idx]/np.median(x_t[idx])
         print(f'pre-processing value:{self.meta}\n')
 
@@ -53,9 +53,10 @@ class preProcessing:
 
         median_y = np.median(y)
         y = y/median_y
-        self.meta['y'] = {'min':min_y, 'meidan':median_y}
+        self.meta['y'] = {'min':min_y, 'median':median_y}
 
         self.save_meta_hdf5(self.meta, self.stats_path)
+        print(f'post-processing value:{self.meta}')
         return np.transpose(x_t, (1, 0, 2, 3, 4)), np.transpose(y,(0,3,1,2))
     def save_meta_hdf5(self,meta, filename='meta.h5'):
         with h5.File(filename, 'w') as f:
@@ -70,10 +71,5 @@ def get_data(path):
         y = np.array(sample['output'], np.float32)
     return x,y
 if __name__ == '__main__':
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data0.hdf5','/home/dc-su2/physical_informed/cnn/statistic/rotation_stats.hdf5')
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5','/home/dc-su2/physical_informed/cnn/statistic/random.hdf5')
     x,y = data_gen.get_data()
-    # with h5.File('/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5','w') as file:
-    #     file['input'] = x
-    #     file['output'] = y
-    # print(x.shape,y.shape)
-    # print('saved!')
