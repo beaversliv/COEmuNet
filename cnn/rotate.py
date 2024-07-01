@@ -82,11 +82,11 @@ def main():
     # means = [0,0,0]
     # feature_stds = [1.1079,0.3765,0.2643]
     # stds = [s*config['dataset']['df'] for s in feature_stds]
-    preprocess_transform = PreprocessTransform(config['dataset']['statistics']['path'])
-    train_transform = CustomCompose([preprocess_transform, AddGaussianNoise(scale_factor=0.1)])
+    preprocess_transform = PreProcessingTransform(config['dataset']['statistics']['path'])
+    train_transform = CustomCompose([preprocess_transform, AddGaussianNoise1(scale_factor=config['dataset']['df'])])
     test_transform = preprocess_transform
 
-    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'],transform=transform)
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'],transform=None)
     # noise_transform = AddGaussianNoise(means,stds)
     # x,y = get_data(config['dataset']['path'])
     # x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
