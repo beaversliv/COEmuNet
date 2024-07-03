@@ -7,6 +7,7 @@ import math
 import json
 import random
 import sys
+from preprocessing import preProcessing
 
 def load_dataset_names(json_file_path):
     '''
@@ -30,12 +31,18 @@ def distribute_datasets(datasets, rank, nproc, segment_size=10903):
 
 def process_datasets(file_list):
     '''
-    pack individual samples into baches based on the splited file paths
+    Pack individual samples into batches based on the split file paths
     '''
     grid, freq, num_input = 64, 1, 3
-    X = np.zeros((len(file_list), num_input, grid, grid, grid))
-    Y = np.zeros((len(file_list), grid, grid, freq))
-    for idx, file in enumerate(file_list):
+    
+    # Filter out non-existing files
+    existing_files = [file for file in file_list if os.path.exists(file)]
+    
+    num_samples = len(existing_files)
+    X = np.zeros((num_samples, num_input, grid, grid, grid))
+    Y = np.zeros((num_samples, grid, grid, freq))
+    
+    for idx, file in enumerate(existing_files):
         with h5.File(file, 'r') as f:
             co = np.array(f['CO'])
             tmp = np.array(f['temperature'])
@@ -63,9 +70,9 @@ if __name__ == "__main__":
     name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/grid64_data.json'
     datasets = load_dataset_names(name_lists)
     # process_file_list = distribute_datasets(datasets[10903:10903*2], rank, nproc,len(datasets)//nproc)
-    process_file_list = distribute_datasets(datasets[10903:], rank, nproc,10903*2)
+    process_file_list = distribute_datasets(datasets[10903:], rank, nproc,10900*2)
     X, Y = process_datasets(process_file_list)
     print(Y.shape)
-    output_file = f'/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'
+    output_file = f'/home/dc-su2/rds/rds-dirac-dr004/Magritte/agument_21800_data.hdf5'
     save_processed_data(output_file, X, Y)
     
