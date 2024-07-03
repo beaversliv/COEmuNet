@@ -36,7 +36,7 @@ class GlobalStatsCalculator:
         self.files = files
         self.batch_size = batch_size
         self.global_minI = float('inf')
-        self.global_maxI = float('-inf')
+        self.global_medianI = 0.0
         self.global_minT = float('inf')
         self.global_minC = float('inf')
         self.global_medianT = None
@@ -45,10 +45,11 @@ class GlobalStatsCalculator:
         self.global_variance = 0.0
         self.global_std = 0.0
         self.n = 0 
-        self.global_median_calculator = OnlineMedianCalculator()
-    def outlierRemover(self,output_):
-        # removed outlier based on middle frequency
-        y = output_[:,:,:,15]
+        self.global_median_calculator_T = OnlineMedianCalculator()
+        self.global_median_calculator_C = OnlineMedianCalculator()
+        self.global_median_calculator_I = OnlineMedianCalculator()
+    def outlierRemover(self,input_,output_):
+        y = output_.copy()
         y[y==0] = np.min(y[y!=0])
         I = np.log(y)
         # difference = max - min
@@ -62,24 +63,32 @@ class GlobalStatsCalculator:
         removed_x = np.delete(input_,outlier_idx,axis=0)
         removed_y = np.delete(output_,outlier_idx,axis=0)
         return removed_x, removed_y
-
-    def intensityStats(self,value):
-        """Calculate the min and max values in a batch, updating global min/max."""
-        vvalue[value==0] = np.min(value[value!=0])
+    def find_global_min(self,value,global_min_attr):
+        """Calculate the min and update the global attribute."""
+        value[value == 0] = np.min(value[value != 0])
         value = np.log(value)
-        CMB = -40.2927
-        value[value<=CMB] = CMB
-
         batch_min = np.min(value)
-        batch_max = np.max(value)
 
-        self.global_minI = min(self.global_minI, batch_min)
-        self.global_maxI = max(self.global_maxI, batch_max)
+        setattr(self, global_min_attr, min(getattr(self, global_min_attr), batch_min))
+
+    def find_global_median(self, value, global_min_attr, median_calculator):
+        """Calculate the median and update the global attribute."""
+        value[value == 0] = np.min(value[value != 0])
+        value = np.log(value)
+        min_value = value - getattr(self, global_min_attr)
+        median_calculator.add_data_point(min_value)
+        
+    def process_stats(self, value, global_min_attr, median_calculator, is_first_pass):
+        if is_first_pass:
+            self.find_global_min(value, global_min_attr)
+        else:
+            self.find_global_median(value, global_min_attr, median_calculator)
 
     def veloStats(self,value):
         """Calculate the mean and std values in a batch, updating global."""
         batch_mean = np.mean(value)
         batch_std = np.std(value)
+        batch_n = value.size 
 
         # Update global mean using Welford's incremental method
         new_n = self.n + batch_n
@@ -98,37 +107,15 @@ class GlobalStatsCalculator:
             self.global_std = np.sqrt(self.global_variance / (self.n - 1))
         else:
             self.global_std = 0.0
-
-    def process_stats(self, value, global_min_attr):
-        """Calculate the min and update the global attribute."""
-        value[value == 0] = np.min(value[value != 0])
-        value = np.log(value)
-        batch_min = np.min(value)
-
-        setattr(self, global_min_attr, min(getattr(self, global_min_attr), batch_min))
-        self.global_median_calculator.add_data_point(value)
-
-    def tempStats(self, value):
-        """Calculate min and median values for temperature data."""
-        self.process_stats(value, 'global_minT')
-        self.global_medianT = self.global_median_calculator.get_median()
-
-    def coStats(self, value):
-        """Calculate min and median values for CO data."""
-        self.process_stats(value, 'global_minC')
-        self.global_medianC = self.global_median_calculator.get_median()
-
     def calculator(self):
-
-        for file in files:
+        # First pass to determine global min values
+        for file in self.files:
             with h5.File(file, 'r') as h5f:
                 input_   = np.array(h5f['input'],np.float64)
                 output_ = np.array(h5f['output'],np.float64)
-
             # remove outlier
-            input_data, output_data = self.outlierRemover(output_)
-
-            num_samples = x.shape[0]
+            input_data, output_data = self.outlierRemover(input_,output_)
+            num_samples = input_data.shape[0]
             for i in range(0,num_samples,self.batch_size):
                 input_batch = input_data[i:i + self.batch_size]
                 output_batch = output_data[i:i + self.batch_size]
@@ -136,40 +123,59 @@ class GlobalStatsCalculator:
                 x_t = np.transpose(input_batch, (1, 0, 2, 3, 4))
                 # velocity stats
                 xv  = x_t[0]
-                vbatch = xv[i:i + batch_size]
-                self.veloStats(vbatch)
-                
-                # temperature and co stats
-                temp  = x_t[1]
-                tbatch = temp[i:i + batch_size]
-                self.tempStats(tbatch)
+                self.veloStats(xv)
+                temp = x_t[1]
+                co = x_t[2]
+                self.process_stats(temp, 'global_minT', self.global_median_calculator_T, is_first_pass=True)
+                self.process_stats(co, 'global_minC', self.global_median_calculator_C, is_first_pass=True)
+                self.process_stats(output_batch, 'global_minI', self.global_median_calculator_I, is_first_pass=True)
 
-                co  = x_t[1]
-                tbatch = co[i:i + batch_size]
-                self.coStats(tbatch)
-                
-                # intensity stats
-                self.intensityStats(output_batch)
+        self.finalize_std()
+        # Second pass to determine global median values
+        for file in self.files:
+            with h5.File(file, 'r') as h5f:
+                input_ = np.array(h5f['input'], np.float64)
+                output_ = np.array(h5f['output'], np.float64)
+
+            input_data, output_data = self.outlierRemover(input_, output_)
+            num_samples = input_data.shape[0]
+            for i in range(0, num_samples, self.batch_size):
+                input_batch = input_data[i:i + self.batch_size]
+                output_batch = output_data[i:i + self.batch_size]
+
+                x_t = np.transpose(input_batch, (1, 0, 2, 3, 4))
+                temp = x_t[1]
+                co = x_t[2]
+                self.process_stats(temp, 'global_minT', self.global_median_calculator_T, is_first_pass=False)
+                self.process_stats(co, 'global_minC', self.global_median_calculator_C, is_first_pass=False)
+                self.process_stats(output_batch, 'global_minI', self.global_median_calculator_I, is_first_pass=False)
+
+        self.global_medianT = self.global_median_calculator_T.get_median()
+        self.global_medianC = self.global_median_calculator_C.get_median()
+        self.global_medianI = self.global_median_calculator_I.get_median()
 
     def get_global_stats(self):
-        return {
-            "global_mean": self.global_mean,
-            "global_std": self.global_std,
-            'global_minT': self.global_minT,
-            "global_medianT": self.global_medianT,
-            'global_minC': self.global_minC,
-            "global_medianC": self.global_medianC,
-            "global_minI": self.global_minI,
-            "global_maxI": self.global_maxI
+        meta = {
+            'vel':{'mean':self.global_mean,'std':self.global_std},
+            'temp':{'min':self.global_minT,'median':self.global_medianT},
+            'co':{'min':self.global_minC,'median':self.global_medianC},
+            'y':{'min':self.global_minI,'median':self.global_medianI}
         }
+        print('Global statistics:',meta)
+        return meta
+    def save_meta_hdf5(self,filename='meta.h5'):
+        meta = self.get_global_stats()
+        with h5.File(filename, 'w') as f:
+            for key, subdict in meta.items():
+                grp = f.create_group(key)
+                for subkey, value in subdict.items():
+                    grp.create_dataset(subkey, data=value)
 
 def main():
-    file_paths = ['/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_0.hdf5',
-                '/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/mul_freq/long_1.hdf5']
-    calculator = GlobalStatsCalculator(file_paths, batch_size=512)
-    calculator.calculator()
-    stats = calculator.get_global_stats()
-    print(stats)
+    file_paths = ['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5']
+    global_calculator = GlobalStatsCalculator(file_paths, batch_size=32)
+    global_calculator.calculator()
+    stats = global_calculator.get_global_stats()
     
     # print('writing statistic values')
     # with open('/home/dc-su2/physical_informed/cnn/stats/mul_statistics.pkl','wb') as file:
