@@ -209,13 +209,6 @@ def main():
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
-     
-    # name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/grid64_data.json'
-    # with open(name_lists,'r') as file:
-    #     lists = json.load(file)
-    # datasets   = lists['datasets']
-    # radius     = float(lists['radius'])
-
     line = Line(
         species_name = "co",
         transition   = 0,
@@ -231,7 +224,7 @@ def main():
     start_index = rank*tasks_per_rank
     end_index = min(rank*tasks_per_rank + tasks_per_rank, n_tasks)
     # print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
-    comm.Barrier()
+    
     for idx in range(start_index,end_index):
         file_idx = idx // args.num_rotations
         rotation_idx = idx % args.num_rotations
@@ -242,14 +235,14 @@ def main():
             gen_file = convert_to_faceon_files(model_file)
         else:
             gen_file = convert_to_rotation_files(model_file,rotation_idx)
-        # nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_file,line=line,radius=radius,type_=args.type,mulfreq=args.mulfreq,model_grid=args.model_grid)
+        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_file,line=line,radius=radius,type_=args.type,mulfreq=args.mulfreq,model_grid=args.model_grid)
         print(f'Rank {rank} writing {gen_file}')
-        # with h5.File(gen_file, "w") as file:
-        #     file.create_dataset('frequencies',  data=frequencies)
-        #     file.create_dataset("CO",           data=nCO_dat)
-        #     file.create_dataset("temperature",  data=tmp_dat)
-        #     file.create_dataset("velocity_z",   data=v_z_dat)
-        #     file.create_dataset('I',            data=img)
-
+        with h5.File(gen_file, "w") as file:
+            file.create_dataset('frequencies',  data=frequencies)
+            file.create_dataset("CO",           data=nCO_dat)
+            file.create_dataset("temperature",  data=tmp_dat)
+            file.create_dataset("velocity_z",   data=v_z_dat)
+            file.create_dataset('I',            data=img)
+    comm.Barrier()
 if __name__ == '__main__':
     main()
