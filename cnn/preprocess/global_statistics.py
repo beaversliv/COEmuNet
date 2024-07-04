@@ -4,6 +4,15 @@ import json
 import pickle
 import h5py  as h5
 import numpy as np
+import time
+def timing_decorator(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        print(f'Function {func.__name__} took {end_time - start_time:.4f} seconds')
+        return result
+    return wrapper
 class OnlineMedianCalculator:
     """Helper class to maintain the running median using two heaps."""
     def __init__(self):
@@ -107,9 +116,11 @@ class GlobalStatsCalculator:
             self.global_std = np.sqrt(self.global_variance / (self.n - 1))
         else:
             self.global_std = 0.0
+    @timing_decorator
     def calculator(self):
         # First pass to determine global min values
         for file in self.files:
+            print('Find min',file)
             with h5.File(file, 'r') as h5f:
                 input_   = np.array(h5f['input'],np.float64)
                 output_ = np.array(h5f['output'],np.float64)
@@ -117,6 +128,7 @@ class GlobalStatsCalculator:
             input_data, output_data = self.outlierRemover(input_,output_)
             num_samples = input_data.shape[0]
             for i in range(0,num_samples,self.batch_size):
+                print(f'batch {i} - {i+self.batch_size}')
                 input_batch = input_data[i:i + self.batch_size]
                 output_batch = output_data[i:i + self.batch_size]
 
@@ -133,6 +145,7 @@ class GlobalStatsCalculator:
         self.finalize_std()
         # Second pass to determine global median values
         for file in self.files:
+            print('find median',file)
             with h5.File(file, 'r') as h5f:
                 input_ = np.array(h5f['input'], np.float64)
                 output_ = np.array(h5f['output'], np.float64)
@@ -140,6 +153,7 @@ class GlobalStatsCalculator:
             input_data, output_data = self.outlierRemover(input_, output_)
             num_samples = input_data.shape[0]
             for i in range(0, num_samples, self.batch_size):
+                print(f'batch {i} - {i+self.batch_size}')
                 input_batch = input_data[i:i + self.batch_size]
                 output_batch = output_data[i:i + self.batch_size]
 
@@ -171,18 +185,14 @@ class GlobalStatsCalculator:
                 for subkey, value in subdict.items():
                     grp.create_dataset(subkey, data=value)
 
-def main():
-    file_paths = ['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5']
-    global_calculator = GlobalStatsCalculator(file_paths, batch_size=32)
+def main(file_paths:list,batch_size):
+    global_calculator = GlobalStatsCalculator(file_paths,batch_size)
     global_calculator.calculator()
-    stats = global_calculator.get_global_stats()
-    
-    # print('writing statistic values')
-    # with open('/home/dc-su2/physical_informed/cnn/stats/mul_statistics.pkl','wb') as file:
-    #     pickle.dump(statistics,file)
-
+    global_calculator.save_meta_hdf5('/home/dc-su2/physical_informed/cnn/statistic/dummy.hdf5')
 if __name__ == '__main__':
-    main()
+    file_paths = file_paths = ['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5',
+                    '/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy1.hdf5']              
+    main(file_paths,1000)
 
 
   
