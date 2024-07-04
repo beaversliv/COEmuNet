@@ -56,7 +56,7 @@ def generate_random_rotation_matrix():
     
     return R
 
-def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
+def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     with h5.File(model_file,'r') as f:
         position = np.array(f['geometry/points/position'])
         velocity = np.array(f['geometry/points/velocity'])* constants.c.si.value
@@ -180,11 +180,25 @@ def data_gen(model_file,line,radius,type_='or',mulfreq=True,model_grid=64):
     # img[img<CMB_matrix] = CMB_matrix[img < CMB_matrix]
 
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
+def convert_to_rotation_files(model_file,rotation_idx):
+
+    listb = model_file.split('/')
+    listb[7] = 'physical_forward/sgl_freq/grid64/R1'
+    listb[-1] = f'{listb[-2]}_{rotation_idx}.hdf5'
+    rotation_file = ('/').join(listb)
+    return rotation_file
+def convert_to_faceon_files(model_file):
+    listb = model_file.split('/')
+    listb[7] = 'physical_forward/sgl_freq/grid64/Original'
+    listb[-1] = f'{listb[-2]}.hdf5'
+    faceon_file = ('/').join(listb)
+    return faceon_file
 
 def parse_args():
     parser = argparse.ArgumentParser(description="A script with command-line arguments")
-    parser.add_argument('--type', type = str, default = "Specify the type (or,r1,r2)")
+    parser.add_argument('--type', type = str, default = "Specify the type (faceon,rotation)")
     parser.add_argument('--model_grid', type = int, default = 64)
+    parser.add_argument('--num_rotations', type = int, default = 50)
     parser.add_argument('--mulfreq', action='store_true', default = False,help="Flag to indicate if multiple frequencies should be used (default: False)")
 
     args = parser.parse_args()
@@ -196,11 +210,11 @@ def main():
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
      
-    name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/grid64_data.json'
-    with open(name_lists,'r') as file:
-        lists = json.load(file)
-    datasets   = lists['datasets']
-    radius     = float(lists['radius'])
+    # name_lists = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/files/grid64_data.json'
+    # with open(name_lists,'r') as file:
+    #     lists = json.load(file)
+    # datasets   = lists['datasets']
+    # radius     = float(lists['radius'])
 
     line = Line(
         species_name = "co",
@@ -210,17 +224,8 @@ def main():
     )
 
     model_files = model_find()
-
-    if args.type == 'or':
-        datasets = datasets[:10903]
-        
-    elif args.type == 'r1':
-        datasets = datasets[10903:10903*2]
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/_runtime{model_grid}_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    elif args.type == 'r2':
-        datasets = datasets[10903*2:]
-        
-    n_tasks    = len(datasets)
+    n_tasks    = len(model_files[:2]) * args.num_rotations
     # tasks_per_rank = int(n_tasks / nproc)
     tasks_per_rank = math.ceil(n_tasks / nproc)
     start_index = rank*tasks_per_rank
@@ -228,16 +233,23 @@ def main():
     # print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
     comm.Barrier()
     for idx in range(start_index,end_index):
-        print(f'reading {model_files[idx]}')
-        nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_files[idx],line=line,radius=radius,type_=args.type,mulfreq=args.mulfreq,model_grid=args.model_grid)
-        path = datasets[idx]
-        print(f'writing {path}\n')
-        with h5.File(path, "w") as file:
-            file.create_dataset('frequencies',  data=frequencies)
-            file.create_dataset("CO",           data=nCO_dat)
-            file.create_dataset("temperature",  data=tmp_dat)
-            file.create_dataset("velocity_z",   data=v_z_dat)
-            file.create_dataset('I',            data=img)
+        file_idx = idx // args.num_rotations
+        rotation_idx = idx % args.num_rotations
+        model_file = model_files[file_idx]
+        print(f'Rank {rank} processing file {model_file} with rotation {rotation_idx}')
+        
+        if args.type == 'faceon':
+            gen_file = convert_to_faceon_files(model_file)
+        else:
+            gen_file = convert_to_rotation_files(model_file,rotation_idx)
+        # nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_file,line=line,radius=radius,type_=args.type,mulfreq=args.mulfreq,model_grid=args.model_grid)
+        print(f'Rank {rank} writing {gen_file}')
+        # with h5.File(gen_file, "w") as file:
+        #     file.create_dataset('frequencies',  data=frequencies)
+        #     file.create_dataset("CO",           data=nCO_dat)
+        #     file.create_dataset("temperature",  data=tmp_dat)
+        #     file.create_dataset("velocity_z",   data=v_z_dat)
+        #     file.create_dataset('I',            data=img)
 
 if __name__ == '__main__':
     main()
