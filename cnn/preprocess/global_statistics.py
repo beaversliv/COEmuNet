@@ -5,6 +5,17 @@ import pickle
 import h5py  as h5
 import numpy as np
 import time
+import logging
+def setup_logger(log_file):
+    logger = logging.getLogger('GlobalStatsLogger')
+    logger.setLevel(logging.DEBUG)
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    return logger
+logger = setup_logger('/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/logfile.log')
 def timing_decorator(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
@@ -120,7 +131,7 @@ class GlobalStatsCalculator:
     def calculator(self):
         # First pass to determine global min values
         for file in self.files:
-            print('Find min',file)
+            logger.info(f'Find min {file}')
             with h5.File(file, 'r') as h5f:
                 input_   = np.array(h5f['input'],np.float64)
                 output_ = np.array(h5f['output'],np.float64)
