@@ -217,8 +217,9 @@ def main():
     )
 
     model_files = model_find()
+    radius = 28984584112701.441406 # pre-calculated in radius.py
         # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/_runtime{model_grid}_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    n_tasks    = len(model_files[:2]) * args.num_rotations
+    n_tasks    = len(model_files) * args.num_rotations
     # tasks_per_rank = int(n_tasks / nproc)
     tasks_per_rank = math.ceil(n_tasks / nproc)
     start_index = rank*tasks_per_rank
