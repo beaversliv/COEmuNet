@@ -199,7 +199,7 @@ class GlobalStatsCalculator:
 def main(file_paths:list,batch_size):
     global_calculator = GlobalStatsCalculator(file_paths,batch_size)
     global_calculator.calculator()
-    global_calculator.save_meta_hdf5('/home/dc-su2/physical_informed/cnn/statistic/dummy.hdf5')
+    global_calculator.save_meta_hdf5('/Users/ss1421/Documents/physical_informed/data/preprocess/statistic/dummy.hdf5')
 if __name__ == '__main__':
     file_paths = file_paths = ['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5',
                     '/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy1.hdf5']              

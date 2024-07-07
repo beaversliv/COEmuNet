@@ -25,12 +25,12 @@ import sys
 import math 
 def generate_random_rotation_matrix():
     """
-    Generate a random rotation matrix using James Avro's method.
+    Generate a random rotation matrix for 3D object rotation
 
     Returns:
     numpy.ndarray: A 3x3 rotation matrix.
     """
-    # Step 1: Generate a random unit vector uniformly distributed on the unit sphere
+    # Generate a random unit vector uniformly distributed on the unit sphere
     u = np.random.uniform(0, 1, 3)
     theta = 2 * np.pi * u[0]
     phi = np.arccos(1 - 2 * u[1])
@@ -40,20 +40,18 @@ def generate_random_rotation_matrix():
     z = np.cos(phi)
     axis = np.array([x, y, z])
     
-    # Step 2: Generate a random angle for rotation about this vector
+    # Generate a random angle for rotation about this vector
     angle = 2 * np.pi * np.random.uniform(0, 1)
     
-    # Step 3: Construct the rotation matrix using the axis-angle representation
+    # Construct the rotation matrix using the axis-angle representation
     r = Rotation.from_rotvec(angle * axis)
-    R = r.as_matrix()
-
     # Using Rodrigues' rotation formula
     # K = np.array([[0, -axis[2], axis[1]],
     #               [axis[2], 0, -axis[0]],
     #               [-axis[1], axis[0], 0]])
     
     # R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.dot(K, K)
-    
+    R = r.as_matrix() 
     return R
 
 def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
@@ -66,6 +64,7 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     
     fcen = line.frequency
     if mulfreq:
+        print('multiple frequency')
         vpix = 300   # velocity pixel size [m/s] 
         nqua = 31
         dd   = vpix * (nqua-1)/2 / constants.c.si.value
@@ -73,11 +72,8 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
         fmax = fcen + fcen*dd
         frequencies = torch.linspace(fmin,fmax,nqua,dtype=torch.float64)
     else:
-        frequencies = torch.tensor([fcen],dtype=torch.float64)
         print('single frequency')
-    # # redefine frequency range, only focused on intersted centred region
-    # start_freq,end_freq = frequencies[11],frequencies[19]
-    # frequencies = torch.linspace(start_freq,end_freq,31)
+        frequencies = torch.tensor([fcen],dtype=torch.float64)
 
     x_min = position[:,0].min()
     x_max = position[:,0].max()
@@ -95,17 +91,12 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     abundance      = abundance[indices_within_ball]
     vturb2         = vturb2[indices_within_ball]
 
-    if type_ == 'or':
+    if type_ == 'faceon':
         # unrotated
         position = position
         velocity = velocity
     else:
         rotation_matrix = generate_random_rotation_matrix()
-        # random_axis = np.array([0.0,0.0,0.1])
-        # # random_axis /= np.linalg.norm(random_axis)
-        # random_angle = 2*np.pi
-        # r = Rotation.from_rotvec(random_angle * random_axis)
-        # rotation_matrix = r.as_matrix()
         position = np.matmul(rotation_matrix,position.T)
         position = position.T
         velocity = np.matmul(rotation_matrix,velocity.T)
@@ -144,7 +135,7 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
         v_y_dat   = haar.map_data(v_y, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
         v_z_dat   = haar.map_data(v_z, interpolate=True)[-1][64:64+128,64:64+128,64:64+128]
 
-    # creare model
+    # create model
     p3droslo_model = TensorModel(shape=nCO_dat.shape, sizes=haar.xyz_L)
     p3droslo_model['CO'         ]  = nCO_dat
     p3droslo_model['temperature']  = tmp_dat
@@ -152,10 +143,8 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     p3droslo_model['velocity_x']       =        v_x_dat
     p3droslo_model['velocity_y']       =        v_y_dat
     p3droslo_model['velocity_z']       =        v_z_dat
-    # with profile(activities=[ProfilerActivity.CPU], profile_memory=True, record_shapes=True) as prof:
     # intensity along z-axis
     # time measurement
-    # logging.basicConfig(filename=f'/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/numerical_runtime2/single_ro_runtime{model_grid}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     start = time.time()
     img = line.LTE_image_along_last_axis(
     density      = p3droslo_model['CO'         ],
@@ -168,7 +157,6 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     end = time.time()
     running_time = end - start
     # logging.info(f'Running time: {running_time:.6} seconds')
-    # print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=10))
     # Avoid negative values (should probably avoid these earlier...)
     img = torch.abs(img)
     
@@ -180,14 +168,19 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     # img[img<CMB_matrix] = CMB_matrix[img < CMB_matrix]
 
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
-def convert_to_rotation_files(model_file,rotation_idx):
-
+def convert_to_rotation_files(model_file:str,rotation_idx:int):
+    '''
+    Generate rotation file path, eg. ~/R1/model1/0766/0766_{rotation_idx}.hdf5
+    '''
     listb = model_file.split('/')
     listb[7] = 'physical_forward/sgl_freq/grid64/R1'
     listb[-1] = f'{listb[-2]}_{rotation_idx}.hdf5'
     rotation_file = ('/').join(listb)
     return rotation_file
 def convert_to_faceon_files(model_file):
+    '''
+    Generate face on file path, eg. ~/Original/model1/0766/0766.hdf5
+    '''
     listb = model_file.split('/')
     listb[7] = 'physical_forward/sgl_freq/grid64/Original'
     listb[-1] = f'{listb[-2]}.hdf5'
@@ -218,13 +211,11 @@ def main():
 
     model_files = model_find()
     radius = 28984584112701.441406 # pre-calculated in radius.py
-        # logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data_gen/files/_runtime{model_grid}_{rank}.log', level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    # distirbute tasks to each processor
     n_tasks    = len(model_files) * args.num_rotations
-    # tasks_per_rank = int(n_tasks / nproc)
     tasks_per_rank = math.ceil(n_tasks / nproc)
     start_index = rank*tasks_per_rank
     end_index = min(rank*tasks_per_rank + tasks_per_rank, n_tasks)
-    # print(f'Rank {rank}, Total Number of Tasks: {n_tasks}, Number of Ranks: {nproc}, Tasks per rank: {tasks_per_rank}')
     
     for idx in range(start_index,end_index):
         file_idx = idx // args.num_rotations

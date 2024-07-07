@@ -4,7 +4,7 @@ dataset:
   grid: 64
   batch_size: 128
   statistics: 
-    path: "/home/dc-su2/physical_informed/cnn/statistic/faceon.hdf5"
+    path: "/Users/ss1421/Documents/physical_informed/data/preprocess/statistic/faceon.hdf5"
     values:
       - name: intensity
         min : 'y/min'

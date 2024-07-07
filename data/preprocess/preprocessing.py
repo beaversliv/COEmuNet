@@ -1,6 +1,9 @@
 import h5py  as h5
 import numpy as np
 class preProcessing:
+    '''
+    Calculate and save statistic of provided data. Suitable for smaller dataset
+    '''
     def __init__(self,data_path,stats_path):
         self.data_path = data_path
         self.meta = {}
@@ -65,11 +68,6 @@ class preProcessing:
                 for subkey, value in subdict.items():
                     grp.create_dataset(subkey, data=value)
 
-def get_data(path):
-    with h5.File(path,'r') as sample:
-        x = np.array(sample['input'],np.float32)   # shape(num_samples,3,64,64,64)
-        y = np.array(sample['output'], np.float32)
-    return x,y
 if __name__ == '__main__':
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5','/home/dc-su2/physical_informed/cnn/statistic/random.hdf5')
+    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5','/Users/ss1421/Documents/physical_informed/data/preprocess/statistic/random.hdf5')
     x,y = data_gen.get_data()
