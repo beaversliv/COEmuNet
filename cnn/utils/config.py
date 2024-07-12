@@ -2,44 +2,6 @@ import argparse
 import os
 from collections import OrderedDict
 import yaml
-
-# def parse_args():
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--path_dir', type = str, default = os.getcwd())
-#     parser.add_argument('--seed',type = int, default = 1234)
-#     parser.add_argument('--dataset', type = str, default = 'faceon',help='type of dataset:[faceon,random,freq]')
-#     parser.add_argument('--model_grid',type=int,default= 64,help='grid of hydro model:[32,64,128]')
-#     parser.add_argument('--save_path',type =str, default = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/')
-#     parser.add_argument('--logfile',type = str, default = 'log_file.txt')
-#     parser.add_argument('--model_name', type = str, default = 'model.pth')
-#     parser.add_argument('--history', type = str, default = 'history.pkl')
-#     parser.add_argument('--epochs', type = int, default = 1000)
-#     parser.add_argument('--batch_size', type = int, default = 128,help='batch size per script')
-#     parser.add_argument('--lr', type = float, default = 1e-3)
-#     parser.add_argument('--lr_decay', type = float, default = 0.95)
-#     parser.add_argument('--alpha', type = float, default = 0.8, help='weight for feature loss')
-#     parser.add_argument('--beta', type = float, default = 0.2,help='weight for MSE') 
-
-
-#     args = parser.parse_args()    
-#     config = OrderedDict([
-#             ('path_dir', args.path_dir),
-#             ('seed', args.seed),
-#             ('dataset', args.dataset),
-#             ('model_grid', args.model_grid),
-#             ('save_path',args.save_path),
-#             ('logfile',args.logfile),
-#             ('model_name', args.model_name),
-#             ('history', args.history),
-#             ('epochs', args.epochs),
-#             ('batch_size', args.batch_size),
-#             ('lr', args.lr),
-#             ('lr_decay', args.lr_decay),
-#             ('alpha', args.alpha),
-#             ('beta', args.beta)
-#             ])
-    
-#     return config
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='/home/dc-su2/physical_informed/cnn/config/faceon_dataset.yaml', help='Path to the YAML configuration file')
@@ -73,8 +35,6 @@ def merge_config(args, config):
         config['dataset']['batch_size'] = args.batch_size
     if args.seed is not None:
         config['model']['seed'] = args.seed
-    if args.df is not None:
-        config['dataset']['df'] = args.df
     if args.epochs is not None:
         config['model']['epochs'] = args.epochs
     if args.alpha is not None:
@@ -98,7 +58,7 @@ def merge_config(args, config):
     return config
 if __name__ == "__main__":
      args = parse_args()
-     config = load_config(args.config)
+     config = load_config('/Users/ss1421/Documents/physical_informed/cnn/config/faceon_dataset.yaml')
      config = merge_config(args, config)
      print(config)
 
