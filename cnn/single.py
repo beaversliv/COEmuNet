@@ -1,13 +1,12 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset,random_split
 from torch.autograd import Variable
 # custom helper functions
-from utils.dataloader     import CustomTransform,IntensityDataset
+from utils.dataloader     import PreProcessingTransform,IntensityDataset
 from utils.ResNet3DModel          import Net
-from utils.loss           import SobelMse
+from utils.loss           import FreqMse
 from utils.plot           import img_plt,history_plt
-from utils.preprocessing  import preProcessing,get_data
 from utils.config         import parse_args,load_config,merge_config
 from utils.trainclass     import Trainer
 # helper packages
@@ -34,7 +33,6 @@ if torch.cuda.is_available():
     print(f"Name of the current GPU: {torch.cuda.get_device_name(current_gpu)}")
 else:
     print("No GPU available, using CPU.")
-
 def main():
     args = parse_args()
     config = load_config(args.config)
@@ -43,12 +41,11 @@ def main():
     np.random.seed(config['model']['seed'])
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
-    x,y = get_data(config['dataset']['path'])
     # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     
     # train test split
-    transform = CustomTransform(config['dataset']['statistics']['path'])
-    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data.hdf5'],transform=transform)
+    transform = PreProcessingTransform(config['dataset']['statistics']['path'])
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/faceon_grid64_data0.hdf5'],transform=transform)
 
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))
@@ -61,17 +58,17 @@ def main():
 
     ### set a model ###
     model = Net(config['dataset']['grid']).to(device)
-    model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    model.load_state_dict(torch.load(model_dict,map_location=device))
+    checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
+    model.load_state_dict(torch.load(checkpoint,map_location=device))
     
-    loss_object = SobelMse(device,alpha=config['model']['alpha'],beta=config['model']['beta'])
+    loss_object = FreqMse(device,alpha=config['model']['alpha'],beta=config['model']['beta'])
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(model.parameters(), **optimizer_params)
     ### start training ###
     print('start training')
-    start = time.time()
     # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
     trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
+    start = time.time()
     trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')

@@ -17,7 +17,7 @@ from utils.dataloader     import PreProcessingTransform,IntensityDataset,AddGaus
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
-from utils.ResNet3DModel  import Net
+from utils.ResNet3DModel  import Net,FinetuneNet
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -78,28 +78,20 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    # add Gaussian noise
-    # means = [0,0,0]
-    # feature_stds = [1.1079,0.3765,0.2643]
-    # stds = [s*config['dataset']['df'] for s in feature_stds]
-    preprocess_transform = PreProcessingTransform(config['dataset']['statistics']['path'])
-    train_transform = CustomCompose([preprocess_transform, AddGaussianNoise1(scale_factor=config['dataset']['df'])])
-    test_transform = preprocess_transform
-
-    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'],transform=None)
-    # noise_transform = AddGaussianNoise(means,stds)
-    # x,y = get_data(config['dataset']['path'])
-    # x,y = np.random.rand(32,3,64,64,64), np.random.rand(32,1,64,64)
+    transform = PreProcessingTransform(file_statistics='/home/dc-su2/physical_informed/cnn/statistic/augment_32100.hdf5')
+    train_file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/Rotation/train_{i}.hdf5' for i in range(40)]
+    test_file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/Rotation/test_{i}.hdf5' for i in range(10)]
     # train test split
-    train_size = int(0.8 * len(dataset))
-    val_size = int(0.1 * len(dataset))
-    test_size = len(dataset) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
-     # Apply the noise transformation only to the training dataset
-    train_dataset.dataset.transform = train_transform
-    val_dataset.dataset.transform = test_transform
-    test_dataset.dataset.transform = test_transform
+    train_dataset = IntensityDataset(train_file_paths,transform=transform)
+    test_dataset = IntensityDataset(test_file_paths,transform=transform)
+    # Don't del following lines
+    # train_size = int(0.8 * len(dataset))
+    # test_size = int(0.2 * len(dataset))
+    # val_size = len(dataset) - train_size - test_size
+    # train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
 
+    # Apply the noise transformation only to the training dataset
+    # train_dataset.dataset.transform = noise_transform
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
@@ -120,9 +112,9 @@ def main():
     # Define the optimizer for the DDP model
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
+    # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
-    # scheduler = CyclicLR(optimizer,base_lr=4*1e-4,max_lr=4*1e-2,step_size_up=100,mode='triangular',cycle_momentum=False)
+    # scheduler = CyclicLR(optimizer,base_lr=1e-3,max_lr=0.1,step_size_up=100,mode='triangular',cycle_momentum=False)
     # scheduler = StepLR(optimizer,step_size=10,gamma=0.1)
     loss_object = FreqMae(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance

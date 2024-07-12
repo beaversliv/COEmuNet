@@ -2,15 +2,16 @@ import torch
 import torch.multiprocessing  as mp
 import torch.distributed      as dist
 from torch.autograd           import Variable
-from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler
+from torch.utils.data         import DataLoader, random_split,DistributedSampler
 from torch.nn.parallel        import DistributedDataParallel as DDP
-from torch.profiler           import profile, record_function, ProfilerActivity
+
 from torch.optim.lr_scheduler import StepLR
-from utils.preprocessing  import preProcessing,get_data
+
 from utils.trainclass     import ddpTrainer
 from utils.ResNet3DModel  import Net
-from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
+from utils.loss           import FreqMse
 from utils.config         import parse_args,load_config,merge_config
+from utils.dataloader     import PreProcessingTransform,IntensityDataset
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -75,19 +76,15 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    # data_gen = preProcessing(config['dataset']['path'])
-    # x,y = data_gen.get_data()
-    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/minmax_random_grid64_data0.hdf5')
-    # train test split
-    # x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
-    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
+    transform = PreProcessingTransform(config['dataset']['statistics']['path'])
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/faceon_grid64_data0.hdf5'],transform=transform)
 
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.2 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+    train_dataloader = DataLoader(train_dataset, batch_size= config['dataset']['batch_size'], shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], shuffle=False)
 
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
@@ -96,19 +93,13 @@ def main():
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
     ### set a model ###
-    model = Net(config['dataset']['grid'])
-    model = model.to(local_rank)
-    # model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    # map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    # model.load_state_dict(torch.load(model_dict, map_location=map_location))
+    model = Net(config['dataset']['grid']).to(local_rank)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    # init larger step size and lr with setpLR
-    scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
-    loss_object = SobelMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
+    loss_object = FreqMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
     

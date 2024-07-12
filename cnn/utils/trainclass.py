@@ -1,11 +1,6 @@
 import torch
-import torch.nn as nn
-import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.autograd import Variable
-from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.profiler import profile, record_function, ProfilerActivity
 
 from .loss                 import calculate_ssim_batch,MaxRel
 from tqdm                 import tqdm
@@ -15,15 +10,25 @@ import os
 import sys
 import json
 import pickle
-import logging
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+def load_statistics(stat_path, statistics):
+    stats = {}
+    with h5.File(stat_path, 'r') as f:
+        for stat in statistics:
+            name = stat['name']
+            stats[name] = {}
+            for key, h5_path in stat.items():
+                if key != 'name':
+                    stats[name][key] = f[h5_path][()]
+    return stats
 class Logging:
     def __init__(self, file_dir:str, file_name:str):
         if not os.path.exists(file_dir):
             os.mkdir(file_dir)
         self.log_file = os.path.join(file_dir, file_name)
         open(self.log_file, 'w').close()
+
     def info(self, message, gpu_rank=0, console=True):
         # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
         if gpu_rank is None or gpu_rank == 0:
@@ -32,25 +37,6 @@ class Logging:
 
             with open(self.log_file, 'a') as f:  # a for append to the end of the file.
                 print(message, file=f)
-    def write_log_metrics(self, epoch, train_loss, train_feature, train_mse, train_maxrel, train_ssim,val_loss, val_feature, val_mse, val_maxrel, val_ssim, gpu_rank=0, console=True):
-        # Create a structured log entry
-        log_entry = {
-            'epoch': epoch,
-            'train_loss': train_loss,
-            'train_feature':train_feature,
-            'train_mse':train_mse,
-            'train_maxrel':train_maxrel,
-            'train_ssim':train_ssim,
-            'val_loss': val_loss,
-            'val_feature':val_feature,
-            'val_mse':val_mse,
-            'relative_loss': val_maxrel,
-            'ssim': val_ssim
-        }
-        # Convert log entry to a JSON string
-        message = json.dumps(log_entry)
-        self.info(message, gpu_rank, console)
-
 class Trainer:
     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
         self.model = model
@@ -79,10 +65,6 @@ class Trainer:
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
             output = self.model(data)
-            print(data.shape)
-            print(target.shape)
-            print(output.shape)
-            sys.exit()
             soble_loss,mse = self.loss_object(target, output)
             loss = soble_loss + mse
             
@@ -109,7 +91,6 @@ class Trainer:
         L = []
         SL = []
         MSE = []
-        total_loss = 0.
         for bidx, samples in enumerate(self.test_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             pred = self.model(data)
@@ -129,19 +110,18 @@ class Trainer:
         return P,T,torch.mean(L),torch.mean(SL),torch.mean(MSE)
     def run(self):
         for epoch in tqdm(range(self.config['model']['epochs'])):
-            epoch_loss,epoch_soble,epoch_mse,tr_p,tr_t = self.train()
+            train_loss,train_feature,train_mse,tr_p,tr_t = self.train()
             torch.cuda.empty_cache()  # Clear cache after training
             
             val_p,val_t,val_loss, val_feature,val_mse = self.test()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-
-            self.log_metrics(epoch, epoch_loss, epoch_soble,epoch_mse,tr_p,tr_t, 
+            self.log_metrics(epoch, train_loss, train_feature,train_mse,tr_p,tr_t, 
                                     val_loss, val_feature,val_mse,val_p, val_t)
             # if patience_counter >= self.config['patience']:
             #     print("Early stopping triggered")
             #     break
         
-    def log_metrics(self, epoch, epoch_loss, epoch_soble,epoch_mse,tr_p,tr_t,val_loss, val_feature,val_mse,val_p, val_t):
+    def log_metrics(self, epoch, train_loss, train_feature,train_mse,tr_p,tr_t,val_loss, val_feature,val_mse,val_p, val_t):
         tr_p = tr_p.cpu().numpy()
         tr_t = tr_t.cpu().numpy()
         val_p = val_p.cpu().numpy()
@@ -155,19 +135,8 @@ class Trainer:
         vl_maxrel = MaxRel(original_vlt,original_vlp)
         vl_ssim = calculate_ssim_batch(val_p, val_t)
 
-        self.logger.write_log_metrics(
-            epoch         = epoch,
-            train_loss    = epoch_loss.cpu().item(),
-            train_feature = epoch_soble.cpu().item(),
-            train_mse     = epoch_mse.cpu().item(),
-            train_maxrel  = train_maxrel,
-            train_ssim    = tr_ssim,
-            val_loss      = val_loss.cpu().item(),
-            val_feature   = val_feature.cpu().item(),
-            val_mse       = val_mse.cpu().item(),
-            val_maxrel = vl_maxrel,
-            val_ssim   = vl_ssim)
-
+        self.logger.info(f'epoch:{epoch}, train_loss:{train_loss.cpu().item()},train_feature:{train_feature.cpu().item()},train_mse:{train_mse.cpu().item()},train_maxrel:{train_maxrel},train_ssim:{tr_ssim},
+                    val_loss:{val_loss.cpu().item()},val_feature:{val_feature.cpu().item()},val_mse:{val_mse.cpu().item()},val_maxrel:{vl_maxrel},val_ssim:{vl_ssim}')
         if vl_maxrel < self.best_loss:
             self.best_loss = vl_maxrel
             self.patience_counter = 0
@@ -178,7 +147,7 @@ class Trainer:
         
     def save(self,save_hist=True):
         model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
-        self.model.load_state_dict(torch.load(model_path),map_location=self.device)
+        self.model.load_state_dict(torch.load(model_path,map_location=self.device))
         pred, target, test_loss,test_feature, test_mse = self.test()
         assert len(target) == len(pred), "Targets and predictions must have the same length"
         # Save the training history
@@ -186,18 +155,18 @@ class Trainer:
             history_path = os.path.join(self.config['output']['save_path'],self.config['output']['results'])
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
-                    "predictions": all_preds,
-                    "targets": all_targets
+                    "predictions": pred,
+                    "targets": target
                 }, pickle_file)
-            print(f'saved {history_path}!\n')
-            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
-            print('best loss', self.best_loss)
-            original_target,original_pred = self.postProcessing(all_targets,all_preds)
-            print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+            self.logger.info(f'saved {history_path}!\n')
+            self.logger.info('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
+            self.logger.info('best loss', self.best_loss)
+            original_target,original_pred = self.postProcessing(target,pred)
+            self.logger.info(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
 
-            avg_ssim = calculate_ssim_batch(all_targets,all_preds)
+            avg_ssim = calculate_ssim_batch(target,pred)
             for freq in range(len(avg_ssim)):
-                print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
+                self.logger.info(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
     def postProcessing(self, target,pred):
         def transformation(y):
             min_   = self.dataset_stats['intensity']['min']
@@ -209,47 +178,6 @@ class Trainer:
             return y
         return transformation(target), transformation(pred)
 
-class ddpLogging:
-    def __init__(self, file_dir:str, file_name:str):
-        if not os.path.exists(file_dir):
-            os.mkdir(file_dir)
-        self.log_file = os.path.join(file_dir, file_name)
-        open(self.log_file, 'w').close()
-    def info(self, message, gpu_rank=0, console=True):
-        # only log rank 0 GPU if running with multiple GPUs/multiple nodes.
-        if gpu_rank is None or gpu_rank == 0:
-            if console:
-                print(message)
-
-            with open(self.log_file, 'a') as f:  # a for append to the end of the file.
-                print(message, file=f)
-    def write_log_metrics(self, epoch, train_loss, train_feature, train_mse,val_loss, val_feature, val_mse, val_maxrel, val_ssim, gpu_rank=0, console=True):
-        # Create a structured log entry
-        log_entry = {
-            'epoch': epoch,
-            'train_loss': train_loss,
-            'train_feature':train_feature,
-            'train_mse':train_mse,
-            'val_loss': val_loss,
-            'val_feature':val_feature,
-            'val_mse':val_mse,
-            'relative_loss': val_maxrel,
-            'ssim': val_ssim
-        }
-        
-        # Convert log entry to a JSON string
-        message = json.dumps(log_entry)
-        self.info(message, gpu_rank, console)
-def load_statistics(stat_path, statistics):
-    stats = {}
-    with h5.File(stat_path, 'r') as f:
-        for stat in statistics:
-            name = stat['name']
-            stats[name] = {}
-            for key, h5_path in stat.items():
-                if key != 'name':
-                    stats[name][key] = f[h5_path][()]
-    return stats
  ### train step ###       
 class ddpTrainer:
     def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,local_rank,world_size,scheduler=None):
@@ -265,7 +193,7 @@ class ddpTrainer:
         self.optimizer        = optimizer
         self.scheduler        = scheduler
         self.loss_object      = loss_object
-        self.logger           = ddpLogging(config['output']['save_path'], config['output']['logfile'])
+        self.logger           = Logging(config['output']['save_path'], config['output']['logfile'])
         self.best_loss        = float('inf')  # Initialize best loss
         self.patience_counter = 0
 
@@ -322,7 +250,7 @@ class ddpTrainer:
         MSE = torch.stack(MSE)
         return P,T,torch.mean(L),torch.mean(SL),torch.mean(MSE)
     def run(self):
-        stop_signal = torch.tensor([0], device=self.rank)
+        stop_signal = torch.tensor([0], device=self.local_rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss,epoch_soble,epoch_mse = self.train()
             torch.cuda.empty_cache()  # Clear cache after training            
@@ -356,19 +284,11 @@ class ddpTrainer:
         all_preds   = all_preds.cpu().numpy()
         original_target = self.postProcessing(all_targets)
         original_pred = self.postProcessing(all_preds)
-        relative_loss = self.relativeLoss(original_target, original_pred)
+        relative_loss = MaxRel(original_target, original_pred)
         
         avg_ssim = calculate_ssim_batch(all_targets, all_preds)
-        self.logger.write_log_metrics(
-            epoch         = epoch,
-            train_loss    = aggregated_epoch_loss.cpu().item(),
-            train_feature = aggregated_epoch_soble.cpu().item(),
-            train_mse     = aggregated_epoch_mse.cpu().item(),
-            val_loss      = aggregated_val_loss.cpu().item(),
-            val_feature   = val_feature.cpu().item(),
-            val_mse       = val_mse.cpu().item(),
-            val_maxrel = relative_loss,
-            val_ssim   = avg_ssim)
+        self.logger.info(f'epoch:{epoch}, train_loss:{aggregated_epoch_loss.cpu().item()},train_feature:{aggregated_epoch_soble.cpu().item()},train_mse:{aggregated_epoch_mse.cpu().item()},
+                    val_loss:{aggregated_val_loss.cpu().item()},val_feature:{val_feature.cpu().item()},val_mse:{val_mse.cpu().item()},val_maxrel:{relative_loss},val_ssim:{avg_ssim}')
  
         if relative_loss < self.best_loss:
             self.best_loss = relative_loss
@@ -398,7 +318,7 @@ class ddpTrainer:
             T = np.vstack(T)
             original_target = self.postProcessing(P)
             original_pred = self.postProcessing(T)
-            print(f'initial relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+            print(f'initial relative loss {MaxRel(original_target,original_pred):.5f}%')
 
     def save(self, save_hist=True):
         if self.rank == 0:
@@ -420,15 +340,15 @@ class ddpTrainer:
                         "targets": all_targets
                     }, pickle_file)
                 print(f'saved {history_path}!\n')
-            print('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
-            print('best loss', self.best_loss)
+            self.logger.info('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
+            self.logger.info('best loss', self.best_loss)
             original_target = self.postProcessing(all_targets)
             original_pred = self.postProcessing(all_preds)
-            print(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+            self.logger.info(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
 
             avg_ssim = calculate_ssim_batch(all_targets,all_preds)
             for freq in range(len(avg_ssim)):
-                print(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
+                self.logger.info(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
 
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)
@@ -439,6 +359,3 @@ class ddpTrainer:
         # y = y*(max_ - min_)+min_
         y = np.exp(y)
         return y
-    def relativeLoss(self,original_target,original_pred):
-        return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) * 100
-        return relative_loss
