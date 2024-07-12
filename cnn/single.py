@@ -46,7 +46,7 @@ def main():
     # train test split
     transform = PreProcessingTransform(config['dataset']['statistics']['path'])
     dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/faceon_grid64_data0.hdf5'],transform=transform)
-
+    print('train test split')
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))
     test_size = len(dataset) - train_size - val_size
@@ -57,11 +57,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     ### set a model ###
+    print('load model')
     model = Net(config['dataset']['grid']).to(device)
     checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
     model.load_state_dict(torch.load(checkpoint,map_location=device))
     
-    loss_object = FreqMse(device,alpha=config['model']['alpha'],beta=config['model']['beta'])
+    loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(model.parameters(), **optimizer_params)
     ### start training ###

@@ -27,6 +27,7 @@ class CustomCompose:
 class PreProcessingTransform:
     def __init__(self,file_statistics):
         self.statistics = self._read_statistics(file_statistics)
+        print('read statistic:',self.statistics)
     def _read_statistics(self, file_path):
         with h5.File(file_path, 'r') as f:
             statistics = {
