@@ -102,7 +102,7 @@ def main():
     model = Net(64)
     model = model.to(local_rank)
     map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
     model.load_state_dict(torch.load(model_dic, map_location=map_location))
     # checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
     # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
