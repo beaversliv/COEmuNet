@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import pickle
+import time
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 def load_statistics(stat_path, statistics):
@@ -39,6 +40,8 @@ class Logging:
                 print(message, file=f)
 class Trainer:
     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
+        print("Initializing Trainer...")
+        start_time = time.time()
         self.model = model
         self.loss_object = loss_object
         self.optimizer   = optimizer
@@ -53,6 +56,8 @@ class Trainer:
         statistics_path = config['dataset']['statistics']['path']
         statistics_values = config['dataset']['statistics']['values']
         self.dataset_stats  = load_statistics(statistics_path,statistics_values)
+        init_duration = time.time() - start_time
+        print(f"Initialization completed in {init_duration:.2f} seconds.")
     
     def train(self):
         total_loss = 0.
@@ -60,7 +65,6 @@ class Trainer:
         total_mse  = 0.
         P,T = [],[]
         self.model.train()
-         
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             self.optimizer.zero_grad()
@@ -110,6 +114,7 @@ class Trainer:
         return P,T,torch.mean(L),torch.mean(SL),torch.mean(MSE)
     def run(self):
         for epoch in tqdm(range(self.config['model']['epochs'])):
+            print(f'epoch:{epoch} starts train')
             train_loss,train_feature,train_mse,tr_p,tr_t = self.train()
             torch.cuda.empty_cache()  # Clear cache after training
             
@@ -135,8 +140,16 @@ class Trainer:
         vl_maxrel = MaxRel(original_vlt,original_vlp)
         vl_ssim = calculate_ssim_batch(val_p, val_t)
 
-        self.logger.info(f'epoch:{epoch}, train_loss:{train_loss.cpu().item()},train_feature:{train_feature.cpu().item()},train_mse:{train_mse.cpu().item()},train_maxrel:{train_maxrel},train_ssim:{tr_ssim},
-                    val_loss:{val_loss.cpu().item()},val_feature:{val_feature.cpu().item()},val_mse:{val_mse.cpu().item()},val_maxrel:{vl_maxrel},val_ssim:{vl_ssim}')
+        self.logger.info(f'epoch:{epoch}, train_loss:{train_loss.cpu().item()}, '
+                 f'train_feature:{train_feature.cpu().item()}, '
+                 f'train_mse:{train_mse.cpu().item()}, '
+                 f'train_maxrel:{train_maxrel}, '
+                 f'train_ssim:{tr_ssim}, '
+                 f'val_loss:{val_loss.cpu().item()}, '
+                 f'val_feature:{val_feature.cpu().item()}, '
+                 f'val_mse:{val_mse.cpu().item()}, '
+                 f'val_maxrel:{vl_maxrel}, '
+                 f'val_ssim:{vl_ssim}')
         if vl_maxrel < self.best_loss:
             self.best_loss = vl_maxrel
             self.patience_counter = 0
@@ -181,6 +194,8 @@ class Trainer:
  ### train step ###       
 class ddpTrainer:
     def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,local_rank,world_size,scheduler=None):
+        print("Initializing Trainer...")
+        start_time = time.time()
         self.ddp_model        = ddp_model
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
@@ -200,6 +215,8 @@ class ddpTrainer:
         statistics_path = config['dataset']['statistics']['path']
         statistics_values = config['dataset']['statistics']['values']
         self.dataset_stats  = load_statistics(statistics_path,statistics_values)
+        init_duration = time.time() - start_time
+        print(f"Initialization completed in {init_duration:.2f} seconds.")
                                        
     def train(self):
         total_loss = 0.
@@ -252,6 +269,7 @@ class ddpTrainer:
     def run(self):
         stop_signal = torch.tensor([0], device=self.local_rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
+            print(f'epoch:{epoch} starts train')
             epoch_loss,epoch_soble,epoch_mse = self.train()
             torch.cuda.empty_cache()  # Clear cache after training            
             # Aggregate losses
@@ -287,8 +305,14 @@ class ddpTrainer:
         relative_loss = MaxRel(original_target, original_pred)
         
         avg_ssim = calculate_ssim_batch(all_targets, all_preds)
-        self.logger.info(f'epoch:{epoch}, train_loss:{aggregated_epoch_loss.cpu().item()},train_feature:{aggregated_epoch_soble.cpu().item()},train_mse:{aggregated_epoch_mse.cpu().item()},
-                    val_loss:{aggregated_val_loss.cpu().item()},val_feature:{val_feature.cpu().item()},val_mse:{val_mse.cpu().item()},val_maxrel:{relative_loss},val_ssim:{avg_ssim}')
+        self.logger.info(f'epoch:{epoch}, train_loss:{aggregated_epoch_loss.cpu().item()},'
+                            f'train_feature:{aggregated_epoch_soble.cpu().item()},'
+                            f'train_mse:{aggregated_epoch_mse.cpu().item()},'
+                            f'val_loss:{aggregated_val_loss.cpu().item()},'
+                            f'val_feature:{val_feature.cpu().item()},'
+                            f'val_mse:{val_mse.cpu().item()},'
+                            f'val_maxrel:{relative_loss},'
+                            f'val_ssim:{avg_ssim}')
  
         if relative_loss < self.best_loss:
             self.best_loss = relative_loss
@@ -344,7 +368,7 @@ class ddpTrainer:
             self.logger.info('best loss', self.best_loss)
             original_target = self.postProcessing(all_targets)
             original_pred = self.postProcessing(all_preds)
-            self.logger.info(f'relative loss {self.relativeLoss(original_target,original_pred):.5f}%')
+            self.logger.info(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
 
             avg_ssim = calculate_ssim_batch(all_targets,all_preds)
             for freq in range(len(avg_ssim)):
