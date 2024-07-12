@@ -1,11 +1,17 @@
 dataset:
   name: "faceon"
-  path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_faceon_grid64_data0.hdf5"
+  train_path: 
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/train_0.hdf5"
+  test_path:
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_0.hdf5"
   grid: 64
   batch_size: 128
-  statistics:
-    min: -47.387955
-    median: 8.168968
+  statistics: 
+    path: "/home/dc-su2/physical_informed/data/preprocess/statistic/faceon.hdf5"
+    values:
+      - name: intensity
+        min : 'y/min'
+        median: 'y/median'
 
 model:
   seed: 1234
