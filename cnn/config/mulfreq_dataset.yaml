@@ -1,0 +1,38 @@
+dataset:
+  name: "random"
+  train_path: 
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_0.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_1.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_2.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_3.hdf5"
+  test_path:
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/test_0.hdf5"
+  grid: 64
+  batch_size: 128
+  statistics: 
+    path: "/home/dc-su2/physical_informed/data/preprocess/statistic/allfreq.hdf5"
+    values:
+      - name: intensity
+        min : 'y/min'
+        median: 'y/median'
+
+model:
+  seed: 1234
+  epochs: 500
+  alpha: 0.8
+  beta: 0.2
+
+optimizer:
+  type: "adam"
+  params:
+    lr: 0.0004
+    betas: [0.9, 0.999]
+    eps: 1.0e-08
+    weight_decay: 0.0
+    amsgrad: false
+
+output:
+  save_path: "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul"
+  logfile: "log_file.txt"
+  model_name: "model.pth"
+  results: "history.pkl"
