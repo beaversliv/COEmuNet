@@ -1,16 +1,15 @@
 import h5py as h5
 import numpy as np
-import pickle
 import sys
 import warnings
 warnings.filterwarnings('error', category=RuntimeWarning)
 # torch related
 import torch
-from torch.utils.data import Dataset, DataLoader,random_split
-from torchvision.transforms   import Compose
+from torch.utils.data import Dataset
+
 import logging
 import time
-from sklearn.model_selection      import train_test_split 
+
 logger = logging.getLogger(__name__)
 ### custom compose class, handles two arguments x and y
 class CustomCompose:
@@ -80,48 +79,7 @@ class PreProcessingTransform:
         yt = torch.tensor(yt,dtype=torch.float32)
 
         return xt,yt
-
-### custom dataset ###
-# class IntensityDataset(Dataset):
-#     def __init__(self,file_paths,transform=None):
-#         '''
-#         arguments:
-#         file_paths ([strings]): path to the hdf5 file. 
-#         '''
-#         self.file_paths = file_paths
-#         self.transform = transform
-#         self.data      = self.load_data()
-
-#     def load_data(self):
-#         data = [] # len = num files
-#         for file_path in self.file_paths:
-#             print(file_path)
-#             with h5.File(file_path, 'r') as hdf5_file:
-#                 cubes = np.array(hdf5_file['input'],dtype=np.float32)
-#                 intensity = np.array(hdf5_file['output'][:, :, :, 15:16],dtype=np.float32)
-#                 data.append((cubes, intensity)) 
-
-#         return data
-        
-#     def __len__(self):
-#         return sum(len(intensity) for cubes, intensity in self.data)
-#     def __getitem__(self,idx):
-#         if torch.is_tensor(idx):
-#             idx = idx.tolist()
-#         # Find the file that contains the requested index
-#         file_idx = 0
-#         while idx >= len(self.data[file_idx][1]):
-#             idx -= len(self.data[file_idx][1])
-#             file_idx += 1
-
-#         # Get the data from the corresponding file
-#         cubes, intensity = self.data[file_idx]
-#         x = cubes[idx]
-#         y = intensity[idx]
-#             # sys.exit()
-#         if self.transform:
-#             xt, yt = self.transform(x, y)
-#         return xt,yt
+### Custom Dataset ###
 class IntensityDataset(Dataset):
     def __init__(self, file_paths, transform=None):
         """
@@ -180,96 +138,3 @@ class IntensityDataset(Dataset):
         if np.min(y) <= -50:
             return True
         return False
-class AddGaussianNoise1(object):
-    '''
-    calculate std for each feature each sample.
-    '''
-    def __init__(self,scale_factor=0.1):
-        self.scale_factor = scale_factor
-
-    def __call__(self,x,y):
-        noisy_tensor = x.clone()
-        for i in range(3):
-            # Calculate the standard deviation for each feature slice
-            std = torch.std(x[i, :, :, :])
-            # Generate noise with mean 0 and std derived from the feature
-            mean_ = 0.0
-            noise = torch.randn(x[i, :, :, :].size()) * (self.scale_factor * std) + mean_
-            noisy_tensor[i, :, :, :] += noise 
-        return noisy_tensor,y
-
-    def __repr__(self):
-        return self.__class__.__name__ + f'(scale_factor={self.scale_factor})'
-
-class AddGaussianNoise(object):
-    def __init__(self, means, stds):
-        assert len(means) == len(stds), "Means and stds must have the same length"
-        self.means = means
-        self.stds = stds
-
-    def __call__(self, tensor):
-        noisy_tensor = tensor.clone()
-        for i in range(len(self.means)):
-            noise = torch.randn(tensor[i, :, :, :].size()) * self.stds[i] + self.means[i]
-            noisy_tensor[i, :, :, :] += noise
-        return noisy_tensor
-
-    def __repr__(self):
-        return self.__class__.__name__ + f'(means={self.means}, stds={self.stds})'
-class AddUniformNoise(object):
-    def __init__(self, lows=-0.1, highs=0.1):
-        self.lows = lows
-        self.highs = highs
-
-    def __call__(self, tensor):
-       
-        noisy_tensor = tensor.clone()
-        for i in range(3):
-            noise = (torch.rand(tensor[i, :, :, :].size()) * (self.highs[i] - self.lows[i]) + self.lows[i])
-            noisy_tensor[i,:,:,:] += noise
-        return noisy_tensor
-
-    def __repr__(self):
-        return self.__class__.__name__ + f'(low={self.low}, high={self.high})'
-class CustomDataset(Dataset):
-    def __init__(self, file_path, transform=None):
-        self.file_path = file_path
-        self.transform = transform
-        with h5.File(self.file_path, 'r') as f:
-            self.data_len = f['input'].shape[0]
-
-    def __len__(self):
-        return self.data_len
-
-    def __getitem__(self, idx):
-        with h5.File(self.file_path, 'r') as f:
-            x = np.array(f['input'][idx],dtype=np.float32)
-            y = np.array(f['output'][idx],dtype=np.float32)
-        x = torch.tensor(x)
-        y = torch.tensor(y)
-        if self.transform:
-            x = self.transform(x)
-
-        return x,y
-if __name__ == '__main__':
-
-    transform = CustomCompose( [PreProcessingTransform('/home/dc-su2/physical_informed/cnn/statistic/random.hdf5'),
-                    AddGaussianNoise1(scale_factor=0.1)
-    ])
-    # transform = PreProcessingTransform('/home/dc-su2/physical_informed/cnn/statistic/random.hdf5')
-    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5'],transform=transform)
-    
-    # train test split
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.2 * len(dataset))
-    test_size = len(dataset) - train_size - val_size
-    # lows,hights = [-0.1,-0.2,-0.2],[0.1,0.2,0.2]
-    # noise_transform = AddUniformNoise(lows, hights)
-    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
-
-    # train_dataset.dataset.transform = noise_transform
-    train_dataloader = DataLoader(train_dataset, batch_size=30)
-
-    for bidx,sample in enumerate(train_dataloader):
-        x,y = sample[0],sample[1]
-        print(y.shape)
