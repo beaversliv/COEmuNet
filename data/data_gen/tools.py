@@ -130,6 +130,26 @@ def path_rotations(model_files,dir='Rotation_Dataset',type_='Original'):
         if not os.path.exists(model_dir):
             os.makedirs(model_dir)
     return r_model_files,dataset_files
+    
+def modify_path_and_ensure_directory(original_path):
+    # Insert 'grid32' after 'cnn'
+    parts = original_path.split('/')
+    insert_index = parts.index('cnn') + 1
+    parts.insert(insert_index, 'grid32')
+    modified_path = '/'.join(parts)
+    
+    # Extract the directory path to check/create
+    directory_path = '/'.join(parts[:insert_index + 3])
+    
+    # Check if the directory exists, if not, create it
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+        print(f"Directory '{directory_path}' was created.")
+    else:
+        print(f"Directory '{directory_path}' already exists.")
+    
+    return modified_path
+
 def plot_cube_2D(cube):
     """
     Plot a slice along the third axis through a 3D cube.
@@ -140,6 +160,7 @@ def plot_cube_2D(cube):
         plt.figure(dpi=150)
         plt.imshow(cube[:,:,z].T.data, vmin=vmin, vmax=vmax, origin='lower')
     return interact(plot, z=(0,cube.shape[2]-1))
+
 # try:
 #         magritte.Model(model_file)
 #     except RuntimeError:

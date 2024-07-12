@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 from collections import namedtuple
-
+import sys
+import torch.nn.init as init
 ### Resnet ###
 class Conv_BN_Relu(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
@@ -94,17 +95,43 @@ class Decoder(nn.Module):
             x = layer(x)
         return x
 
+class Latent(nn.Module):
+    def __init__(self,input_dim,model_grid=64):
+        super(Latent,self).__init__()
+        self.layers =  nn.ModuleList()
+        if model_grid == 32:
+            out_dim = 64 * 4 * 4
+        elif model_grid == 64:
+            out_dim = 64 * 8 * 8
+        elif model_grid == 128:
+            out_dim = 64 * 16 * 16
+
+        self.layers.append(nn.Linear(input_dim, 16**3))
+        self.layers.append(nn.Linear(16**3, out_dim))
+        self.layers.append(nn.ReLU())
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self,model_grid=64):
         super(Net, self).__init__()
+        self.model_grid = model_grid
         self.encoder0 = Encoder(1)
         self.encoder1 = Encoder(1)
         self.encoder2 = Encoder(1)
-        
-        # self.to_lat = nn.Linear(32*4*4*4*3, 8*8*8)
-        # self.to_dec = nn.Linear(8*8*8, 64*8*8) #64*8*8
-        self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
-        self.to_dec = nn.Linear(16*16*16,64*8*8)
+        # grid 64
+        if model_grid == 32:
+            self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*4*4)
+        elif model_grid == 64:
+            self.to_lat1 = nn.Linear(32*4*4*4*3,16*16*16)
+            self.to_dec3 = nn.Linear(16*16*16,64*8*8)
+        elif model_grid == 128:
+            self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*16*16)
         self.decoder= Decoder(in_channels=64, out_channels=1)
         
         
@@ -112,6 +139,82 @@ class Net(nn.Module):
         x0 = self.encoder0(x[:, 0:1, :, :, :])
         x1 = self.encoder1(x[:, 1:2, :, :, :])
         x2 = self.encoder2(x[:, 2:3, :, :, :])
+      
+        # x0 shape (batch size, 32*4*4*4)
+        x0 = torch.flatten(x0, start_dim=1)   
+        x1 = torch.flatten(x1, start_dim=1)   
+        x2 = torch.flatten(x2, start_dim=1) 
+        # x shape (batch size, 32*4*4*4*3)
+        x = torch.cat([x0, x1, x2], dim = -1)
+ 
+        # (batch, 16*16*16)
+        x_latent = self.to_lat1(x) #dense layer
+        x = nn.ReLU()(self.to_dec3(x_latent)) # latent space
+        # grid 64
+        if self.model_grid == 32:
+            x = x.view(-1, 64, 4, 4)
+        elif self.model_grid == 64:
+            x = x.view(-1, 64, 8, 8)
+        elif self.model_grid == 128:
+            x = x.view(-1, 64, 16, 16)
+        
+	    # shape (batch_size,64,8,8)
+        output = self.decoder(x)
+        return output
+class Decoder3D(nn.Module):
+    def __init__(self, in_channels=64, out_channels=1):
+        super(Decoder3D, self).__init__()
+        self.layers = nn.ModuleList()
+        # Example: Halving the channels and doubling the spatial dimension with each step
+        for i in range(3):
+            # self.layers.append(residual_Block(in_channels, int(in_channels / 2), kernel_size=(1,3,3), stride=(1,1,1), padding = (0,1,1), skip=True))
+            # self.layers.append(residual_Block(int(in_channels / 2), int(in_channels / 2), kernel_size=(1,3,3), stride=(1,1,1), padding = 'same', skip=False)) # [batch, 8, 16, 16, 16]
+            # self.layers.append(nn.Upsample(scale_factor=(1,2,2), mode='nearest'))  # Upsampling
+            self.layers.append(nn.Conv3d(in_channels, int(in_channels / 2), kernel_size=(1,3,3), stride=(1,1,1),padding=(0,1,1)))
+            self.layers.append(nn.BatchNorm3d(int(in_channels / 2)))
+            self.layers.append(nn.ReLU())
+
+            self.layers.append(nn.Conv3d(int(in_channels / 2), int(in_channels / 2), kernel_size=(1,3,3), stride=(1,1,1),padding=(0,1,1)))
+            self.layers.append(nn.BatchNorm3d(int(in_channels / 2)))
+            self.layers.append(nn.ReLU())
+
+            self.layers.append(nn.Conv3d(int(in_channels / 2), int(in_channels / 2), kernel_size=(1,3,3), stride=(1,1,1),padding=(0,1,1)))
+            self.layers.append(nn.BatchNorm3d(int(in_channels / 2)))
+            self.layers.append(nn.ReLU())
+            self.layers.append(nn.Upsample(scale_factor=(1,2,2), mode='nearest'))  # Upsampling
+            
+            in_channels = int(in_channels/2)
+        # Final convolution to get the desired number of output channels (1 in this case)
+        self.layers.append(nn.Conv3d(in_channels, out_channels, kernel_size=(1,3,3), padding=(0,1,1)))
+        # self.layers.append(nn.Conv3d(out_channels, out_channels, kernel_size=(1,3,3), padding=(0,1,1)))
+        self.layers.append(nn.Tanh())
+
+    def forward(self, x):
+        for idx in range(len(self.layers)):
+            x = self.layers[idx](x)
+        # print(x.shape)
+        return x
+
+class Net3D(nn.Module):
+    def __init__(self,freq=31):
+        super(Net3D, self).__init__()
+        # self.apply(he_init)
+        self.freq     = freq     # number of frequencies
+        self.encoder0 = Encoder(1)
+        self.encoder1 = Encoder(1)
+        self.encoder2 = Encoder(1)
+        # grid 64
+        self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
+        self.to_dec = nn.Linear(16*16*16,64*8*8*self.freq)
+        
+        self.decoder3d= Decoder3D(in_channels=64, out_channels=1)
+        
+        
+    def forward(self, x):
+        x0 = self.encoder0(x[:, 0:1, :, :, :])
+        x1 = self.encoder1(x[:, 1:2, :, :, :])
+        x2 = self.encoder2(x[:, 2:3, :, :, :])
+      
         # x0 shape (batch size, 32*4*4*4)
         x0 = torch.flatten(x0, start_dim=1)   
         x1 = torch.flatten(x1, start_dim=1)   
@@ -122,9 +225,10 @@ class Net(nn.Module):
         # (batch, 16*16*16)
         x_latent = self.to_lat(x) #dense layer
         x = nn.ReLU()(self.to_dec(x_latent)) # latent space
-        x = x.view(-1, 64, 8, 8)
-      
-	# shape (batch_size,64,8,8)
-        output = self.decoder(x)
-        return x_latent, output
+
+        x = x.view(-1, 64, self.freq, 8, 8)  # treat 31 as a sequence or depth
+        
+	    # shape (batch_size,64,8,8)
+        output = self.decoder3d(x)
+        return output
 

@@ -280,10 +280,10 @@ class ClsSO3VoxConvModel(torch.nn.Module):
             activation1,
             nn.R3Conv(out_type, next_type, 3, 1, stride=2)
         )   # 39-240-78
-        # self.skip1 = nn.SequentialModule(
-        #     nn.R3Conv(in_type, next_type, 1),
-        #     nn.PointwiseAvgPool3D(next_type, 2, 2, 1),
-        # )
+        self.skip1 = nn.SequentialModule(
+            nn.R3Conv(in_type, next_type, 1), # kernel
+            nn.PointwiseAvgPool3D(next_type, 2, 2, 0), # kernel, stride, padding
+        )
         # print(f'block 1: {in_type.size} {out_type.size} {next_type.size}')
 
         in_type = next_type
@@ -304,10 +304,10 @@ class ClsSO3VoxConvModel(torch.nn.Module):
             activation2,
             nn.R3Conv(out_type, next_type, 3, 1, stride=2)
         )   # 78-480-240
-        # self.skip2 = nn.SequentialModule(
-        #     nn.R3Conv(in_type, next_type, 1),
-        #     nn.PointwiseAvgPool3D(next_type, 2, 2, 1),
-        # )
+        self.skip2 = nn.SequentialModule(
+            nn.R3Conv(in_type, next_type, 1),
+            nn.PointwiseAvgPool3D(next_type, 2, 2, 0),
+        )
         # print(f'block 2: {in_type.size} {out_type.size} {next_type.size}')
         
         in_type = next_type
@@ -328,10 +328,10 @@ class ClsSO3VoxConvModel(torch.nn.Module):
             activation3,
             nn.R3Conv(out_type, next_type, 3, 1, stride=2)
         )   # 240-480-480
-        # self.skip3 = nn.SequentialModule(
-        #     nn.R3Conv(in_type, next_type, 1),
-        #     nn.PointwiseAvgPool3D(next_type, 2, 2, 1),
-        # )
+        self.skip3 = nn.SequentialModule(
+            nn.R3Conv(in_type, next_type, 1),
+            nn.PointwiseAvgPool3D(next_type, 2, 2, 0),
+        )
         # print(f'block 3: {in_type.size} {out_type.size} {next_type.size}')
         
         in_type = next_type
@@ -352,10 +352,10 @@ class ClsSO3VoxConvModel(torch.nn.Module):
             activation4,
             nn.R3Conv(out_type, next_type, 3, 1, stride=2)
         )   # 480-960-312
-        # self.skip4 = nn.SequentialModule(
-        #     nn.R3Conv(in_type, next_type, 1),
-        #     nn.PointwiseAvgPool3D(next_type, 2, 2, 1),
-        # )
+        self.skip4 = nn.SequentialModule(
+            nn.R3Conv(in_type, next_type, 1),
+            nn.PointwiseAvgPool3D(next_type, 2, 2, 0),
+        )
         # print(f'block 4: {in_type.size} {out_type.size} {next_type.size}')
 
         in_type = next_type
@@ -386,24 +386,25 @@ class ClsSO3VoxConvModel(torch.nn.Module):
         x = self.conv0(x)
         # print(f"conv0 {x.shape}")
 
-        x = self.block1(x)
-        # x2 = self.skip1(x)
-        # print(f"block1 {x.shape}")
+        x1 = self.block1(x)
+        x2 = self.skip1(x)
+        # print(f"block1 {x1.shape} skip1 {x2.shape}")
+        x = x1 + x2
 
-        x = self.block2(x)
-        # x2 = self.skip2(x)
-        # print(f"block3 {x.shape}")
-        # x = x1 + x2
+        x1 = self.block2(x)
+        x2 = self.skip2(x)
+        # print(f"block3 {x1.shape} skip2 {x2.shape}")
+        x = x1 + x2
         
-        x = self.block3(x)
-        # x2 = self.skip3(x)
-        # print(f"block3 {x.shape}")
-        # x = x1 + x2
+        x1 = self.block3(x)
+        x2 = self.skip3(x)
+        # print(f"block3 {x1.shape} skip3 {x2.shape}")
+        x = x1 + x2
 
-        x = self.block4(x)
-        # x2 = self.skip4(x)
-        # print(f"block4 {x.shape}")
-        # x = x1 + x2
+        x1 = self.block4(x)
+        x2 = self.skip4(x)
+        # print(f"block4 {x1.shape} skip4 {x2.shape}")
+        x = x1 + x2
         x = self.conv5(x)
         # print(f"conv5 {x.shape}")
 
@@ -418,16 +419,27 @@ class ClsSO3VoxConvModel(torch.nn.Module):
         # x = self.fc3(x)
 
         return x
+class Latent(torch.nn.Module):
+    def __init__(self,input_dim):
+        super(Latent,self).__init__()
+        self.layers =  torch.nn.ModuleList()
+        self.layers.append(torch.nn.Linear(input_dim, 16**3))
+        self.layers.append(torch.nn.Linear(16**3, 64*8*8))
+        self.layers.append(torch.nn.ReLU())
 
-class ClsSO3Net(torch.nn.Module):
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+class SO3Net(torch.nn.Module):
     def __init__(self):
-        super(ClsSO3Net,self).__init__()
+        super(SO3Net,self).__init__()
         self.encoder0 = ClsSO3VoxConvModel(freq=1,scale=1)
         self.encoder1 = ClsSO3VoxConvModel(freq=1,scale=1)
         self.encoder2 = ClsSO3VoxConvModel(freq=1,scale=1)
 
-        self.to_lat = torch.nn.Linear(1280*2*2*2*3,16*16*16)
-        self.to_dec = torch.nn.Linear(16*16*16,64*8*8)
+        self.latent = Latent(input_dim=1280*2*2*2*3)
         self.decoder= steerableDecoder(in_channels=64, out_channels=1)
     
     def forward(self, x):
@@ -442,14 +454,17 @@ class ClsSO3Net(torch.nn.Module):
         x0 = torch.flatten(x0, start_dim=1)   
         x1 = torch.flatten(x1, start_dim=1)   
         x2 = torch.flatten(x2, start_dim=1) 
-        # x shape (batch size, 32*4*4*4*3)
+        # x shape (batch size, 1280*2*2*2*3)
         x = torch.cat([x0, x1, x2], dim = -1)
- 
-        # (batch, 16*16*16)
-        x_latent = self.to_lat(x) #dense layer
-        x = torch.nn.ReLU()(self.to_dec(x_latent)) # latent space
+        x = self.latent(x)
         x = x.view(-1, 64, 8, 8)
       
-	# shape (batch_size,64,8,8)
+	    # shape (batch_size,64,8,8)
         output = self.decoder(x)
-        return x_latent, output
+        return output
+if __name__ == '__main__':
+    batch_size = 32
+    z = torch.randn((batch_size,3,64,64,64)) # treat 31 as a sequence or depth
+    decoder = SO3Net()
+    output_imgs = decoder(z)
+    print(output_imgs.shape)

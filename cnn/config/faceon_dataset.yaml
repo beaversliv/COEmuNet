@@ -1,0 +1,46 @@
+dataset:
+  name: "faceon"
+  train_path: 
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/train_0.hdf5"
+  test_path:
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_0.hdf5"
+  grid: 64
+  batch_size: 128
+  statistics: 
+    path: "/home/dc-su2/physical_informed/data/preprocess/statistic/faceon.hdf5"
+    values:
+      - name: intensity
+        min : 'y/min'
+        median: 'y/median'
+
+model:
+  seed: 1234
+  epochs: 500
+  alpha: 0.8
+  beta: 0.2
+
+optimizer:
+  type: "adam"
+  params:
+    lr: 0.0004
+    betas: [0.9, 0.999]
+    eps: 1.0e-08
+    weight_decay: 0
+    amsgrad: false
+
+# scheduler:
+#   type: "cyclic"
+#   params:
+#     base_lr: 0.0004
+#     max_lr: 0.04
+#     step_size_up: 100
+#     step_size_down: null  # If null, step_size_down is set to step_size_up
+#     mode: "triangular"
+#     gamma: 1.0
+#     cycle_momentum: false 
+
+output:
+  save_path: "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results"
+  logfile: "log_file.txt"
+  model_name: "model.pth"
+  results: "results.pkl"
