@@ -168,25 +168,14 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     # img[img<CMB_matrix] = CMB_matrix[img < CMB_matrix]
 
     return nCO_dat,tmp_dat,v_z_dat,frequencies,img
-def convert_to_rotation_files(model_file:str,rotation_idx:int):
-    '''
-    Generate rotation file path, eg. ~/R1/model1/0766/0766_{rotation_idx}.hdf5
-    '''
+def data_path_files(model_file,rotation_idx,gen_path):
+
     listb = model_file.split('/')
-    listb[7] = 'physical_forward/sgl_freq/grid64/R1'
+    # if mul case, just 'physical_forward/mul_freq/grid64'
+    listb.insert(6,gen_path)
     listb[-1] = f'{listb[-2]}_{rotation_idx}.hdf5'
     rotation_file = ('/').join(listb)
     return rotation_file
-def convert_to_faceon_files(model_file):
-    '''
-    Generate face on file path, eg. ~/Original/model1/0766/0766.hdf5
-    '''
-    listb = model_file.split('/')
-    listb[7] = 'physical_forward/sgl_freq/grid64/Original'
-    listb[-1] = f'{listb[-2]}.hdf5'
-    faceon_file = ('/').join(listb)
-    return faceon_file
-
 def parse_args():
     parser = argparse.ArgumentParser(description="A script with command-line arguments")
     parser.add_argument('--type', type = str, default = "Specify the type (faceon,rotation)")
@@ -202,10 +191,14 @@ def main():
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
+    if args.mul_freq:
+        transition = 1
+    else:
+        transition = 0
     line = Line(
         species_name = "co",
-        transition   = 0,
-        datafile     = "/home/dc-su2/physical_informed/data_gen/co.txt",
+        transition   = transition,
+        datafile     = "/home/dc-su2/physical_informed/data/data_gen/co.txt",
         molar_mass   = 28.0
     )
 
@@ -223,10 +216,10 @@ def main():
         model_file = model_files[file_idx]
         print(f'Rank {rank} processing file {model_file} with rotation {rotation_idx}')
         
-        if args.type == 'faceon':
-            gen_file = convert_to_faceon_files(model_file)
+        if args.mul_freq:
+            gen_file = data_path_files(model_file,rotation_idx,gen_path='physical_forward/mul_freq/grid64')
         else:
-            gen_file = convert_to_rotation_files(model_file,rotation_idx)
+            gen_file = data_path_files(model_file,rotation_idx,gen_path='physical_forward/sgl_freq/grid64')
         nCO_dat,tmp_dat,v_z_dat,frequencies,img = data_gen(model_file,line=line,radius=radius,type_=args.type,mulfreq=args.mulfreq,model_grid=args.model_grid)
         print(f'Rank {rank} writing {gen_file}')
         with h5.File(gen_file, "w") as file:
