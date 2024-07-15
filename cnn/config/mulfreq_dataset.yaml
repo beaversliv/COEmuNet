@@ -55,11 +55,11 @@ dataset:
   grid: 64
   batch_size: 128
   statistics: 
-    path: "/home/dc-su2/physical_informed/data/preprocess/statistic/allfreq.hdf5"
+    path: "/home/dc-su2/physical_informed/data/preprocess/statistic/mulfreq.hdf5"
     values:
       - name: intensity
         min : 'y/min'
-        median: 'y/median'
+        max: 'y/max'
 
 model:
   seed: 1234
