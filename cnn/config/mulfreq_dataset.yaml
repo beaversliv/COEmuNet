@@ -57,9 +57,14 @@ dataset:
   statistics: 
     path: "/home/dc-su2/physical_informed/data/preprocess/statistic/mulfreq.hdf5"
     values:
+      - name: velocity
+        stats: ['mean','std']
+      - name: temperature
+        stats: ['min','median']
+      - name: density
+        stats: ['min','median']
       - name: intensity
-        min : 'y/min'
-        max: 'y/max'
+      stats: ['min','max']
 
 model:
   seed: 1234

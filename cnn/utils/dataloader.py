@@ -25,31 +25,21 @@ class CustomCompose:
         return self.__class__.__name__ + f'({self.transforms})'
 ### custom transformations ###
 class PreProcessingTransform:
-    def __init__(self,file_statistics):
-        self.statistics = self._read_statistics(file_statistics)
+    def __init__(self,config):
+        self.config     = config
+        statistics_path = config['dataset']['statistics']['path']
+        statistics_values = config['dataset']['statistics']['values']
+        self.statistics  = self._load_statistics(statistics_path,statistics_values)
         print('read statistic:',self.statistics)
-    def _read_statistics(self, file_path):
+    def _load_statistics(self,statistics_values,file_path):
+        statistics = {}
         with h5.File(file_path, 'r') as f:
-            statistics = {
-                'velocity': {
-                    'mean': f['vel']['mean'][()],
-                    'std': f['vel']['std'][()]
-                },
-                # Add other features as needed
-                'temperature': {
-                    'min': f['temp']['min'][()],
-                    'median': f['temp']['median'][()]
-                },
-                'density': {
-                    'min': f['co']['min'][()],
-                    'median': f['co']['median'][()]
-                },
-                'intensity':{
-                    'min':f['y']['min'][()],
-                    'median': f['y']['median'][()],
-                }
-            }
+            for value in statistics_values:
+                feature = value['name']
+                stats_to_read = value['stats']
+                statistics[feature] = {stat: f[feature][stat][()] for stat in stats_to_read}
         return statistics
+
     
     def __call__(self,x,y):
         xt = x.copy()
@@ -71,9 +61,15 @@ class PreProcessingTransform:
         y_v = yt.reshape(-1)
         yt = np.where(yt == 0, np.min(y_v[y_v != 0]), yt)
         yt = np.log(yt)
-        yt = yt-self.statistics['intensity']['min']
-        yt = yt/self.statistics['intensity']['median']
-        yt = np.transpose(yt,(2,0,1))
+        if self.config['dataset']['name'] == 'mulfreq':
+            yt = (yt - self.statistics['intensity']['min']) / (self.statistics['intensity']['max'] - self.statistics['intensity']['min'])
+            yt = np.transpose(yt,(2,0,1))
+            yt = yt[np.newaxis,:,:,:]
+
+        else:
+            yt = yt-self.statistics['intensity']['min']
+            yt = yt/self.statistics['intensity']['median']
+            yt = np.transpose(yt,(2,0,1))
         
         # convert to tensor
         xt = torch.tensor(xt,dtype=torch.float32)

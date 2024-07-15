@@ -57,9 +57,16 @@ dataset:
   statistics: 
     path: "/home/dc-su2/physical_informed/data/preprocess/statistic/random.hdf5"
     values:
+      - name: velocity
+        stats: ['mean','std']
+      - name: temperature
+        stats: ['min','median']
+      - name: density
+        stats: ['min','median']
       - name: intensity
-        min : 'y/min'
-        median: 'y/median'
+      stats: ['min','median']
+        # min : 'y/min'
+        # median: 'y/median'
 
 model:
   seed: 1234

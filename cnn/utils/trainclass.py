@@ -2,7 +2,7 @@ import torch
 import torch.distributed as dist
 from torch.autograd import Variable
 
-from .loss                 import calculate_ssim_batch,MaxRel
+from loss                 import calculate_ssim_batch,MaxRel
 from tqdm                 import tqdm
 import numpy as np
 import h5py  as h5
@@ -13,16 +13,15 @@ import pickle
 import time
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-def load_statistics(stat_path, statistics):
-    stats = {}
-    with h5.File(stat_path, 'r') as f:
-        for stat in statistics:
-            name = stat['name']
-            stats[name] = {}
-            for key, h5_path in stat.items():
-                if key != 'name':
-                    stats[name][key] = f[h5_path][()]
-    return stats
+def load_statistics(statistics_values,file_path):
+        statistics = {}
+        with h5.File(file_path, 'r') as f:
+            for value in statistics_values:
+                feature = value['name']
+                stats_to_read = value['stats']
+                statistics[feature] = {stat: f[feature][stat][()] for stat in stats_to_read}
+        return statistics
+
 class Logging:
     def __init__(self, file_dir:str, file_name:str):
         if not os.path.exists(file_dir):
