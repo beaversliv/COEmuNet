@@ -1,7 +1,7 @@
 dataset:
   name: "random"
   train_path: 
-     - /home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_0.hdf5
+    - /home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_0.hdf5
     - /home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_1.hdf5
     - /home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_2.hdf5
     - /home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_3.hdf5
@@ -64,7 +64,7 @@ dataset:
       - name: density
         stats: ['min','median']
       - name: intensity
-      stats: ['min','max']
+        stats: ['min','max']
 
 model:
   seed: 1234
