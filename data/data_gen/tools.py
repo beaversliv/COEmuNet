@@ -89,7 +89,7 @@ def model_find():
     xxxx.hdf5
     '''
     model_files = []
-    path = "/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/AMRVAC_3D/"
+    path = "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/AMRVAC_3D/"
     for model_dir in os.listdir(path):
         # model_dir is modelxxx
         model_path = os.path.join(path,model_dir)

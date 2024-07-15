@@ -419,6 +419,18 @@ class ClsSO3VoxConvModel(torch.nn.Module):
         # x = self.fc3(x)
 
         return x
+class Latent(torch.nn.Module):
+    def __init__(self,input_dim):
+        super(Latent,self).__init__()
+        self.layers =  torch.nn.ModuleList()
+        self.layers.append(torch.nn.Linear(input_dim, 16**3))
+        self.layers.append(torch.nn.Linear(16**3, 64*8*8))
+        self.layers.append(torch.nn.ReLU())
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 class SO3Net(torch.nn.Module):
     def __init__(self):
@@ -427,8 +439,7 @@ class SO3Net(torch.nn.Module):
         self.encoder1 = ClsSO3VoxConvModel(freq=1,scale=1)
         self.encoder2 = ClsSO3VoxConvModel(freq=1,scale=1)
 
-        self.to_lat = torch.nn.Linear(1280*2*2*2*3,16*16*16)
-        self.to_dec = torch.nn.Linear(16*16*16,64*8*8)
+        self.latent = Latent(input_dim=1280*2*2*2*3)
         self.decoder= steerableDecoder(in_channels=64, out_channels=1)
     
     def forward(self, x):
@@ -443,14 +454,17 @@ class SO3Net(torch.nn.Module):
         x0 = torch.flatten(x0, start_dim=1)   
         x1 = torch.flatten(x1, start_dim=1)   
         x2 = torch.flatten(x2, start_dim=1) 
-        # x shape (batch size, 32*4*4*4*3)
+        # x shape (batch size, 1280*2*2*2*3)
         x = torch.cat([x0, x1, x2], dim = -1)
- 
-        # (batch, 16*16*16)
-        x_latent = self.to_lat(x) #dense layer
-        x = torch.nn.ReLU()(self.to_dec(x_latent)) # latent space
+        x = self.latent(x)
         x = x.view(-1, 64, 8, 8)
       
-	# shape (batch_size,64,8,8)
+	    # shape (batch_size,64,8,8)
         output = self.decoder(x)
-        return x_latent, output
+        return output
+if __name__ == '__main__':
+    batch_size = 32
+    z = torch.randn((batch_size,3,64,64,64)) # treat 31 as a sequence or depth
+    decoder = SO3Net()
+    output_imgs = decoder(z)
+    print(output_imgs.shape)

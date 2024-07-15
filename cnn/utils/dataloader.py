@@ -1,97 +1,79 @@
 import h5py as h5
 import numpy as np
-import pickle
 import sys
 import warnings
 warnings.filterwarnings('error', category=RuntimeWarning)
 # torch related
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 import logging
 import time
 
 logger = logging.getLogger(__name__)
+### custom compose class, handles two arguments x and y
+class CustomCompose:
+    def __init__(self, transforms):
+        self.transforms = transforms
+
+    def __call__(self, x, y):
+        for transform in self.transforms:
+            x, y = transform(x, y)
+        return x, y
+
+    def __repr__(self):
+        return self.__class__.__name__ + f'({self.transforms})'
 ### custom transformations ###
-class CustomTransform:
-    def __init__(self,file_statistics):
-        self.file_statistics = file_statistics
-        with open(file_statistics,'rb') as pkl_file:
-            self.statistics = pickle.load(pkl_file)
+class PreProcessingTransform:
+    def __init__(self,statistics_path,statistics_values):
+        self.statistics  = self._load_statistics(statistics_path,statistics_values)
+        print('read statistic:',self.statistics)
+    def _load_statistics(self,statistics_values,file_path):
+        statistics = {}
+        with h5.File(file_path, 'r') as f:
+            for value in statistics_values:
+                feature = value['name']
+                stats_to_read = value['stats']
+                statistics[feature] = {stat: f[feature][stat][()] for stat in stats_to_read}
+        return statistics
+
     
     def __call__(self,x,y):
         xt = x.copy()
         yt = y.copy()
         # single x, y
-        xt[0] = (xt[0]-self.statistics['vz'][0])/self.statistics['vz'][1]
+        xt[0] = (xt[0]-self.statistics['velocity']['mean'])/self.statistics['velocity']['std']
 
-        try:
-            xt[1] = np.log(xt[1],dtype=np.float32)
-        except RuntimeWarning:
-            xt[1] = np.log(xt[1] + 1e-10, dtype=np.float32)
-        xt[1] = xt[1] - self.statistics['temp'][0]
-        xt[1] = xt[1]/self.statistics['temp'][1]
-        try:
-            xt[2] = np.log(xt[2],dtype=np.float32)
-        except RuntimeWarning:
-            xt[2] = np.log(xt[2] + 1e-10, dtype=np.float32)
-        xt[2] = xt[2] - self.statistics['co'][0]
-        xt[2] = xt[2]/self.statistics['co'][1]
+        
+        xt[1] = np.log(xt[1],dtype=np.float32)
+        xt[1] = xt[1] - self.statistics['temperature']['min']
+        xt[1] = xt[1]/self.statistics['temperature']['median']
+        # try:
+        xt[2] = np.log(xt[2],dtype=np.float32)
+        # except RuntimeWarning:
+        #     xt[2] = np.log(xt[2] + 1e-10, dtype=np.float32)
+        xt[2] = xt[2] - self.statistics['density']['min']
+        xt[2] = xt[2]/self.statistics['density']['median']
 
         y_v = yt.reshape(-1)
         yt = np.where(yt == 0, np.min(y_v[y_v != 0]), yt)
         yt = np.log(yt)
-        yt = yt-self.statistics['y'][0]
-        yt = yt/self.statistics['y'][1]
-        yt = np.transpose(yt,(2,0,1))
+        if self.config['dataset']['name'] == 'mulfreq':
+            yt = (yt - self.statistics['intensity']['min']) / (self.statistics['intensity']['max'] - self.statistics['intensity']['min'])
+            yt = np.transpose(yt,(2,0,1))
+            yt = yt[np.newaxis,:,:,:]
+
+        else:
+            yt = yt-self.statistics['intensity']['min']
+            yt = yt/self.statistics['intensity']['median']
+            yt = np.transpose(yt,(2,0,1))
         
         # convert to tensor
         xt = torch.tensor(xt,dtype=torch.float32)
         yt = torch.tensor(yt,dtype=torch.float32)
 
         return xt,yt
-
-### custom dataset ###
-# class IntensityDataset(Dataset):
-#     def __init__(self,file_paths,transform=None):
-#         '''
-#         arguments:
-#         file_paths ([strings]): path to the hdf5 file. 
-#         '''
-#         self.file_paths = file_paths
-#         self.transform = transform
-#         self.data      = self.load_data()
-
-#     def load_data(self):
-#         data = [] # len = num files
-#         for file_path in self.file_paths:
-#             print(file_path)
-#             with h5.File(file_path, 'r') as hdf5_file:
-#                 cubes = np.array(hdf5_file['input'],dtype=np.float32)
-#                 intensity = np.array(hdf5_file['output'][:, :, :, 15:16],dtype=np.float32)
-#                 data.append((cubes, intensity)) 
-
-#         return data
-        
-#     def __len__(self):
-#         return sum(len(intensity) for cubes, intensity in self.data)
-#     def __getitem__(self,idx):
-#         if torch.is_tensor(idx):
-#             idx = idx.tolist()
-#         # Find the file that contains the requested index
-#         file_idx = 0
-#         while idx >= len(self.data[file_idx][1]):
-#             idx -= len(self.data[file_idx][1])
-#             file_idx += 1
-
-#         # Get the data from the corresponding file
-#         cubes, intensity = self.data[file_idx]
-#         x = cubes[idx]
-#         y = intensity[idx]
-#             # sys.exit()
-#         if self.transform:
-#             xt, yt = self.transform(x, y)
-#         return xt,yt
+### Custom Dataset ###
 class IntensityDataset(Dataset):
     def __init__(self, file_paths, transform=None):
         """
@@ -122,7 +104,8 @@ class IntensityDataset(Dataset):
         with h5.File(self.file_paths[file_idx], 'r') as hdf5_file:
             x = np.array(hdf5_file['input'][file_local_idx], dtype=np.float32)
             y = np.array(hdf5_file['output'][file_local_idx], dtype=np.float32)
-
+        if self.remove_outlier(y):
+            return self.__getitem__((idx + 1) % self.__len__())  # Skip to the next sample
         if self.transform:
             xt,yt = self.transform(x, y)
         else: 
@@ -143,3 +126,9 @@ class IntensityDataset(Dataset):
                 return file_idx, global_idx - running_total
             running_total += file_length
         raise IndexError("Index out of range")
+    def remove_outlier(self,y):
+        y[y == 0] = np.min(y[y != 0])
+        y = np.log(y)
+        if np.min(y) <= -50:
+            return True
+        return False

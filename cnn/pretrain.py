@@ -2,15 +2,16 @@ import torch
 import torch.multiprocessing  as mp
 import torch.distributed      as dist
 from torch.autograd           import Variable
-from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler
+from torch.utils.data         import DataLoader, random_split,DistributedSampler
 from torch.nn.parallel        import DistributedDataParallel as DDP
-from torch.profiler           import profile, record_function, ProfilerActivity
+
 from torch.optim.lr_scheduler import StepLR
-from utils.preprocessing  import preProcessing
-from utils.ResNet3DModel  import FinetuneNet
-from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
+
 from utils.trainclass     import ddpTrainer
-from utils.config         import parse_args
+from utils.ResNet3DModel  import Net
+from utils.loss           import FreqMse
+from utils.config         import parse_args,load_config,merge_config
+from utils.dataloader     import PreProcessingTransform,IntensityDataset
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -25,7 +26,9 @@ import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 from sklearn.model_selection      import train_test_split 
-import socket                     
+import socket 
+
+# torch.backends.cudnn.deterministic = True
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
 
@@ -53,56 +56,52 @@ def setup(rank, world_size):
 def cleanup():
     "Cleans up the distributed environment"
     dist.destroy_process_group()
+   
 def main(): 
     # Initialize any necessary components for DDP
     world_size    = int(os.environ.get("SLURM_NTASKS"))
     rank          = int(os.environ.get("SLURM_PROCID"))
     gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
+    
     print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
-    setup(rank, world_size)
+    setup(rank, world_size) 
 
-    config = parse_args()
-    np.random.seed(config['seed'])
-    torch.manual_seed(config['seed'])
-    torch.cuda.manual_seed_all(config['seed'])
+    args = parse_args()
+    config = load_config(args.config)
+    config = merge_config(args, config)
 
-    data_gen = preProcessing('/home/dc-su2/rds/rds-dirac-dr004/Magritte/faceon_grid64_data0.hdf5')
-    x,y = data_gen.get_data()
-    # train test split
-    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
+    np.random.seed(config['model']['seed'])
+    torch.manual_seed(config['model']['seed'])
+    torch.cuda.manual_seed_all(config['model']['seed'])
 
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
+    transform = PreProcessingTransform(config['dataset']['statistics']['path'],config['dataset']['statistics']['values'])
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/faceon_grid64_data0.hdf5'],transform=transform)
+
+    train_size = int(0.7 * len(dataset))
+    val_size = int(0.2 * len(dataset))
+    test_size = len(dataset) - train_size - val_size
+    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+    train_dataloader = DataLoader(train_dataset, batch_size= config['dataset']['batch_size'], shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], shuffle=False)
 
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
-    train_dataloader = DataLoader(train_dataset, config['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=config['batch_size'], num_workers=num_workers, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
 
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
-
-    model = FinetuneNet(config['model_grid'])
-    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
-    model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
-    model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
-
-    # model = Net(config['model_grid'])
-    model = model.to(local_rank)
+    ### set a model ###
+    model = Net(config['dataset']['grid']).to(local_rank)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
-    optimizer = torch.optim.Adam(ddp_model.parameters(), lr=config['lr'], betas=(0.9, 0.999))
-    scheduler = StepLR(optimizer, step_size=100, gamma=0.1)
-    loss_object = SobelMse(local_rank, alpha=config['alpha'],beta=config['beta'])
+    optimizer_params = config['optimizer']['params']
+    optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
+    loss_object = FreqMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=scheduler)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
     
     # Run the training and testing
     ### start training ###

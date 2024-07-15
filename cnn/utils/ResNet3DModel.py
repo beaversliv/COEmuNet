@@ -4,13 +4,6 @@ import torchvision.models as models
 from collections import namedtuple
 import sys
 import torch.nn.init as init
-
-# Define custom He initialization function
-def he_init(layer):
-    if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
-        init.kaiming_normal_(layer.weight, nonlinearity='relu')  # He initialization for ReLU-based networks
-        if layer.bias is not None:
-            layer.bias.data.fill_(0)
 ### Resnet ###
 class Conv_BN_Relu(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
@@ -122,46 +115,6 @@ class Latent(nn.Module):
             x = layer(x)
         return x
 
-class FinetuneNet(nn.Module):
-    def __init__(self,model_grid=64):
-        super(FinetuneNet, self).__init__()
-        self.model_grid = model_grid
-        self.encoder0 = Encoder(1)
-        self.encoder1 = Encoder(1)
-        self.encoder2 = Encoder(1)
-        # grid 64
-        if model_grid == 32:
-            input_dim = 32*2*2*2*3
-        elif model_grid == 64:
-            input_dim = 32*4*4*4*3
-        elif model_grid == 128:
-            input_dim = 32*8*8*8*3
-        self.latent = Latent(input_dim=input_dim)
-
-        self.decoder= Decoder(in_channels=64, out_channels=1)
-    def forward(self,x):
-        x0 = self.encoder0(x[:, 0:1, :, :, :])
-        x1 = self.encoder1(x[:, 1:2, :, :, :])
-        x2 = self.encoder2(x[:, 2:3, :, :, :])
-      
-        # x0 shape (batch size, 32*4*4*4)
-        x0 = torch.flatten(x0, start_dim=1)   
-        x1 = torch.flatten(x1, start_dim=1)   
-        x2 = torch.flatten(x2, start_dim=1) 
-        # x shape (batch size, 32*4*4*4*3)
-        features = torch.cat([x0, x1, x2], dim = -1)
-        latent_output = self.latent(features)
-
-        if self.model_grid == 32:
-            x = latent_output.view(-1, 64, 4, 4)
-        elif self.model_grid == 64:
-            x = latent_output.view(-1, 64, 8, 8)
-        elif self.model_grid == 128:
-            x = latent_output.view(-1, 64, 16, 16)
-        
-	    # shape (batch_size,64,8,8)
-        output = self.decoder(x)
-        return output
 class Net(nn.Module):
     def __init__(self,model_grid=64):
         super(Net, self).__init__()
@@ -174,8 +127,8 @@ class Net(nn.Module):
             self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*4*4)
         elif model_grid == 64:
-            self.to_lat1 = nn.Linear(32*4*4*4*3,16*16*16)
-            self.to_dec3 = nn.Linear(16*16*16,64*8*8)
+            self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*8*8)
         elif model_grid == 128:
             self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*16*16)
@@ -195,8 +148,8 @@ class Net(nn.Module):
         x = torch.cat([x0, x1, x2], dim = -1)
  
         # (batch, 16*16*16)
-        x_latent = self.to_lat1(x) #dense layer
-        x = nn.ReLU()(self.to_dec3(x_latent)) # latent space
+        x_latent = self.to_lat(x) #dense layer
+        x = nn.ReLU()(self.to_dec(x_latent)) # latent space
         # grid 64
         if self.model_grid == 32:
             x = x.view(-1, 64, 4, 4)
@@ -207,54 +160,6 @@ class Net(nn.Module):
         
 	    # shape (batch_size,64,8,8)
         output = self.decoder(x)
-        return output
-class PixelWisePredictor(nn.Module):
-    def __init__(self, input_dim):
-        super(PixelWisePredictor, self).__init__()
-        self.fc1 = nn.Linear(input_dim, 16*16*16)
-        self.fc2 = nn.Linear(16*16*16, 1)
-
-    def forward(self, x):
-        x = nn.functional.relu(self.fc1(x))
-        x = nn.functional.relu(self.fc2(x))
-        return x
-class PixelNet(nn.Module):
-    def __init__(self, model_grid=64):
-        super(PixelNet, self).__init__()
-        self.model_grid = model_grid
-        self.encoder0 = Encoder(1)
-        self.encoder1 = Encoder(1)
-        self.encoder2 = Encoder(1)
-        # grid 64
-        if model_grid == 32:
-            input_dim = 32*2*2*2*3
-        elif model_grid == 64:
-            input_dim = 32*4*4*4*3
-        elif model_grid == 128:
-            input_dim = 32*8*8*8*3
-        self.predictor = PixelWisePredictor(input_dim=input_dim)
-
-    def forward(self, x):
-        x0 = self.encoder0(x[:, 0:1, :, :, :])
-        x1 = self.encoder1(x[:, 1:2, :, :, :])
-        x2 = self.encoder2(x[:, 2:3, :, :, :])
-      
-        # x0 shape (batch size, 32*4*4*4)
-        x0 = torch.flatten(x0, start_dim=1)   
-        x1 = torch.flatten(x1, start_dim=1)   
-        x2 = torch.flatten(x2, start_dim=1) 
-        # x shape (batch size, 32*4*4*4*3)
-        encoded_features = torch.cat([x0, x1, x2], dim = -1)
- 
-        # (batch, 16*16*16)
-        batch_size = encoded_features.size(0)
-        # grid 64
-        output = torch.zeros((batch_size, 1,self.model_grid, self.model_grid),device=encoded_features.device)
-    
-        # Predict each pixel
-        for i in range(self.model_grid):
-            for j in range(self.model_grid):
-                output[:, 0, i, j] = self.predictor(encoded_features).squeeze()
         return output
 class Decoder3D(nn.Module):
     def __init__(self, in_channels=64, out_channels=1):
@@ -326,11 +231,4 @@ class Net3D(nn.Module):
 	    # shape (batch_size,64,8,8)
         output = self.decoder3d(x)
         return output
-
-if __name__ == '__main__':
-    batch_size = 32
-    z = torch.randn((batch_size,3,64,64,64)) # treat 31 as a sequence or depth
-    decoder = Net(64)
-    output_imgs = decoder(z)
-    print(output_imgs.shape)
 

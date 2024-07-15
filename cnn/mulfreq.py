@@ -1,16 +1,15 @@
 import torch
-import torch.multiprocessing  as mp
 import torch.distributed      as dist
 from torch.autograd           import Variable
-from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler
+from torch.utils.data         import DataLoader, TensorDataset,DistributedSampler,random_split
 from torch.nn.parallel        import DistributedDataParallel as DDP
-from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR
-from utils.preprocessing  import preProcessing,get_data
+
+from utils.dataloader     import PreProcessingTransform,IntensityDataset
+from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
-from utils.ResNet3DModel  import Net
-from utils.loss           import SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.config         import parse_args,load_config,merge_config
+from utils.ResNet3DModel  import Net3D
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -25,9 +24,7 @@ import argparse
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 from sklearn.model_selection      import train_test_split 
-import socket 
-
-# torch.backends.cudnn.deterministic = True
+import socket    
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
 
@@ -55,75 +52,66 @@ def setup(rank, world_size):
 def cleanup():
     "Cleans up the distributed environment"
     dist.destroy_process_group()
-   
 def main(): 
     # Initialize any necessary components for DDP
     world_size    = int(os.environ.get("SLURM_NTASKS"))
     rank          = int(os.environ.get("SLURM_PROCID"))
     gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
-    
     print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
-    setup(rank, world_size) 
+    setup(rank, world_size)
 
     args = parse_args()
     config = load_config(args.config)
     config = merge_config(args, config)
-
+    
     np.random.seed(config['model']['seed'])
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    # data_gen = preProcessing(config['dataset']['path'])
-    # x,y = data_gen.get_data()
-    x,y = get_data('/home/dc-su2/rds/rds-dirac-dr004/Magritte/minmax_random_grid64_data0.hdf5')
-    # train test split
-    # x,y = np.random.rand(64,3,64,64,64),np.random.rand(64,1,64,64)
-    xtr, xte, ytr,yte = train_test_split(x,y,test_size=0.2,random_state=42)
-    xtr = torch.tensor(xtr,dtype=torch.float32)
-    ytr = torch.tensor(ytr,dtype=torch.float32)
-    xte = torch.tensor(xte,dtype=torch.float32)
-    yte = torch.tensor(yte,dtype=torch.float32)
-
-    train_dataset = TensorDataset(xtr, ytr)
-    test_dataset = TensorDataset(xte, yte)
-
+    transform = PreProcessingTransform(config['dataset']['statistics']['path'],config['dataset']['statistics']['values'])
+    train_dataset = IntensityDataset(config['dataset']['train_path'],transform=transform)
+    test_dataset  = IntensityDataset(config['dataset']['test_path'],transform=transform)
+    
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
 
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
-    ### set a model ###
-    model = Net(config['dataset']['grid'])
+
+    model = Net3D(freq=7)
     model = model.to(local_rank)
-    # model_dict = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/best_model.pth'
-    # map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    # model.load_state_dict(torch.load(model_dict, map_location=map_location))
+    map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
+    checkpoint = torch.load(model_dic,map_location=map_location)
+    model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    # init larger step size and lr with setpLR
-    scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
-    loss_object = SobelMse(local_rank, alpha=config['model']['alpha'],beta=config['model']['beta'])
+    # scheduler = StepLR(optimizer,step_size=10,gamma=0.1)
+    loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,local_rank, world_size,scheduler=None)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=None)
     
     # Run the training and testing
-    ### start training ###
-    trainer.eval()
-
+    dist.barrier()
     start = time.time()
-    print(f'rank {rank} starts training\n')
+    if rank == 0:
+        print(f'rank {rank} starts training\n')
     trainer.run()
     end = time.time()
-    print(f'running time:{(end-start)/60} mins')
-    trainer.save(False)
-   
+    # Synchronize all processes and stop the timer
+    dist.barrier()
+    if rank == 0:
+        print(f'running time: {(end - start) / 3600:.2f} hours')
+    trainer.save(True)
+    
     # Clean up
     cleanup()
+    print('clean up process')
 if __name__ == '__main__':
     main()

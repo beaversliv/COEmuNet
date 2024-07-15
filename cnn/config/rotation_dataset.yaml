@@ -1,11 +1,72 @@
 dataset:
-  name: "faceon"
-  path: "/home/dc-su2/rds/rds-dirac-dr004/Magritte/clean_random_grid64_data0.hdf5"
+  name: "random"
+  train_path: 
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_0.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_1.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_2.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_3.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_4.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_5.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_6.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_7.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_8.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_9.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_10.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_11.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_12.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_13.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_14.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_15.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_16.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_17.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_18.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_19.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_20.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_21.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_22.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_23.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_24.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_25.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_26.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_27.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_28.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_29.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_30.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_31.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_32.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_33.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_34.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_35.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_36.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_37.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_38.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_39.hdf5"
+  test_path:
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_0.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_1.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_2.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_3.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_4.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_5.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_6.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_7.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_8.hdf5"
+    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_9.hdf5"
   grid: 64
   batch_size: 128
-  statistics:
-    min: -50.24472
-    median: 11.025192
+  statistics: 
+    path: "/home/dc-su2/physical_informed/data/preprocess/statistic/random.hdf5"
+    values:
+      - name: velocity
+        stats: ['mean','std']
+      - name: temperature
+        stats: ['min','median']
+      - name: density
+        stats: ['min','median']
+      - name: intensity
+        stats: ['min','median']
+        # min : 'y/min'
+        # median: 'y/median'
 
 model:
   seed: 1234
@@ -19,7 +80,7 @@ optimizer:
     lr: 0.0004
     betas: [0.9, 0.999]
     eps: 1.0e-08
-    weight_decay: 0.1
+    weight_decay: 0.0
     amsgrad: false
 
 # scheduler:
