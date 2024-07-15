@@ -70,7 +70,7 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    transform = PreProcessingTransform(file_statistics=config['dataset']['statistics']['path'])
+    transform = PreProcessingTransform(config['dataset']['statistics']['path'],config['dataset']['statistics']['values'])
     train_dataset = IntensityDataset(config['dataset']['train_path'],transform=transform)
     test_dataset  = IntensityDataset(config['dataset']['test_path'],transform=transform)
     
@@ -97,14 +97,20 @@ def main():
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=None)
     
     # Run the training and testing
+    dist.barrier()
     start = time.time()
-    print(f'rank {rank} starts training\n')
+    if rank == 0:
+        print(f'rank {rank} starts training\n')
     trainer.run()
     end = time.time()
-    print(f'running time:{(end-start)/60} mins')
-    trainer.save(False)
-   
+    # Synchronize all processes and stop the timer
+    dist.barrier()
+    if rank == 0:
+        print(f'running time: {(end - start) / 3600:.2f} hours')
+    trainer.save(True)
+    
     # Clean up
     cleanup()
+    print('clean up process')
 if __name__ == '__main__':
     main()

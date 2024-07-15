@@ -25,10 +25,7 @@ class CustomCompose:
         return self.__class__.__name__ + f'({self.transforms})'
 ### custom transformations ###
 class PreProcessingTransform:
-    def __init__(self,config):
-        self.config     = config
-        statistics_path = config['dataset']['statistics']['path']
-        statistics_values = config['dataset']['statistics']['values']
+    def __init__(self,statistics_path,statistics_values):
         self.statistics  = self._load_statistics(statistics_path,statistics_values)
         print('read statistic:',self.statistics)
     def _load_statistics(self,statistics_values,file_path):
