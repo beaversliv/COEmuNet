@@ -38,7 +38,7 @@ def data_path_files(model_file,rotation_idx,gen_path):
     rotation_file = ('/').join(listb)
     return rotation_file
 
-def file_paths_gen(num_rotations=50,gen_path='physical_forward/sgl_freq/grid64'):
+def file_paths_gen(num_rotations=50,gen_path='physical_forward/mul_freq/grid64'):
     model_files = model_find()
     rotation_files = []
     for idx in range(10903 * num_rotations):
@@ -54,7 +54,7 @@ def batch_files(file_list, batch_size):
         yield file_list[i:i + batch_size]
 
 def save_batch_to_hdf5(batch, filename):
-    grid, freq, num_input = 64, 1, 3
+    grid, freq, num_input = 64, 7, 3
     with h5.File(filename,'w') as h5f:
         num_samples = len(batch)
         X = np.zeros((num_samples, num_input, grid, grid, grid))
@@ -64,7 +64,7 @@ def save_batch_to_hdf5(batch, filename):
                 co = np.array(f['CO'])
                 tmp = np.array(f['temperature'])
                 v_z = np.array(f['velocity_z'])
-                img = np.array(f['I'])
+                img = np.array(f['I'][:,:,12:19])
             X[idx] = np.stack((v_z, tmp, co), axis=0)
             Y[idx] = img
             
@@ -78,7 +78,7 @@ def main():
     rank = comm.Get_rank()
     size = comm.Get_size()
     if rank == 0:
-        file_paths = file_paths_gen(num_rotations=50,gen_path='physical_forward/sgl_freq/grid64')
+        file_paths = file_paths_gen(num_rotations=50,gen_path='physical_forward/mul_freq/grid64')
         # Shuffle the file paths
         random.shuffle(file_paths)
         
@@ -113,10 +113,10 @@ def main():
     for i in range(start_index, end_index):
         batch = all_batches[i]
         if i < len(train_batches):
-            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/train_{i}.hdf5'
+            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_{i}.hdf5'
         else:
             test_idx = i - len(train_batches)
-            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_{test_idx}.hdf5'
+            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/test_{test_idx}.hdf5'
         save_batch_to_hdf5(batch, filename)
         print(f'Rank {rank} saved {filename}')
 if __name__ =='__main__':
