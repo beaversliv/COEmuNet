@@ -55,8 +55,9 @@ class GlobalStatsCalculator:
     def __init__(self,files:list,batch_size:int):
         self.files = files
         self.batch_size = batch_size
-        self.global_minI = float('inf')
+        self.global_minI = -40.0
         self.global_medianI = 0.0
+        self.global_maxI = float('-inf')
         self.global_minT = float('inf')
         self.global_minC = float('inf')
         self.global_medianT = None
@@ -90,6 +91,12 @@ class GlobalStatsCalculator:
         batch_min = np.min(value)
 
         setattr(self, global_min_attr, min(getattr(self, global_min_attr), batch_min))
+    def find_global_max(self,value,global_max_attr):
+        value[value == 0] = np.min(value[value != 0])
+        value = np.log(value)
+        batch_max = np.max(value)
+
+        setattr(self, global_max_attr, max(getattr(self, global_max_attr), batch_max))
 
     def find_global_median(self, value, global_min_attr, median_calculator):
         """Calculate the median and update the global attribute."""
@@ -151,7 +158,8 @@ class GlobalStatsCalculator:
                 co = x_t[2]
                 self.process_stats(temp, 'global_minT', self.global_median_calculator_T, is_first_pass=True)
                 self.process_stats(co, 'global_minC', self.global_median_calculator_C, is_first_pass=True)
-                self.process_stats(output_batch, 'global_minI', self.global_median_calculator_I, is_first_pass=True)
+                # self.process_stats(output_batch, 'global_minI', self.global_median_calculator_I, is_first_pass=True)
+                self.find_global_max(output_batch,'global_maxI')
 
         self.finalize_std()
         # Second pass to determine global median values
@@ -199,7 +207,7 @@ class GlobalStatsCalculator:
 def main(file_paths:list,batch_size):
     global_calculator = GlobalStatsCalculator(file_paths,batch_size)
     global_calculator.calculator()
-    global_calculator.save_meta_hdf5('/Users/ss1421/Documents/physical_informed/data/preprocess/statistic/dummy.hdf5')
+    global_calculator.save_meta_hdf5('/home/dc-su2/physical_informed/data/preprocess/statistic/dummy.hdf5')
 if __name__ == '__main__':
     file_paths = file_paths = ['/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy.hdf5',
                     '/home/dc-su2/rds/rds-dirac-dr004/Magritte/dummy1.hdf5']              
