@@ -377,9 +377,12 @@ class ddpTrainer:
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)
     def postProcessing(self,y):
-        min_   = self.dataset_stats['intensity']['min']
-        median = self.dataset_stats['intensity']['median']
-        y = y*median + min_
-        # y = y*(max_ - min_)+min_
+        if self.config['dataset']['name'] == 'random' or 'faceon':
+            min_   = self.dataset_stats['intensity']['min']
+            median = self.dataset_stats['intensity']['median']
+            y = y*median + min_
+        else:
+            max_   = self.dataset_stats['intensity']['max']
+            y = y*(max_ - min_)+min_
         y = np.exp(y)
         return y
