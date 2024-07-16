@@ -10,6 +10,7 @@ from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
 from utils.ResNet3DModel  import Net
+from utils.loadModel      import load_state_dict
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -85,7 +86,9 @@ def main():
     model = model.to(local_rank)
     map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
     checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/checkpoint.pth'
-    model.load_state_dict(torch.load(checkpoint, map_location=map_location))
+
+    state_dict = torch.load(checkpoint,map_location=map_location)
+    load_state_dict(model,state_dict)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
