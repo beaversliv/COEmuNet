@@ -1,5 +1,5 @@
 dataset:
-  name: "random"
+  name: "mulfreq"
   train_path: 
     - /home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_0.hdf5
     - /home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_1.hdf5
