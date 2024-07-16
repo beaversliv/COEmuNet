@@ -268,7 +268,6 @@ class ddpTrainer:
     def run(self):
         stop_signal = torch.tensor([0], device=self.local_rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
-            print(f'epoch:{epoch} starts train')
             epoch_loss,epoch_soble,epoch_mse = self.train()
             torch.cuda.empty_cache()  # Clear cache after training            
             # Aggregate losses
