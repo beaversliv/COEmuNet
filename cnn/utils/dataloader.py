@@ -25,12 +25,13 @@ class CustomCompose:
         return self.__class__.__name__ + f'({self.transforms})'
 ### custom transformations ###
 class PreProcessingTransform:
-    def __init__(self,statistics_path,statistics_values):
+    def __init__(self,statistics_path,statistics_values,dataset_name):
+        self.dataset_name = dataset_name
         self.statistics  = self._load_statistics(statistics_path,statistics_values)
         print('read statistic:',self.statistics)
-    def _load_statistics(self,statistics_values,file_path):
+    def _load_statistics(self,statistics_path,statistics_values):
         statistics = {}
-        with h5.File(file_path, 'r') as f:
+        with h5.File(statistics_path, 'r') as f:
             for value in statistics_values:
                 feature = value['name']
                 stats_to_read = value['stats']
@@ -58,7 +59,7 @@ class PreProcessingTransform:
         y_v = yt.reshape(-1)
         yt = np.where(yt == 0, np.min(y_v[y_v != 0]), yt)
         yt = np.log(yt)
-        if self.config['dataset']['name'] == 'mulfreq':
+        if self.dataset_name == 'mulfreq':
             yt = (yt - self.statistics['intensity']['min']) / (self.statistics['intensity']['max'] - self.statistics['intensity']['min'])
             yt = np.transpose(yt,(2,0,1))
             yt = yt[np.newaxis,:,:,:]

@@ -70,7 +70,7 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    transform = PreProcessingTransform(config['dataset']['statistics']['path'],config['dataset']['statistics']['values'])
+    transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
     train_dataset = IntensityDataset(config['dataset']['train_path'],transform=transform)
     test_dataset  = IntensityDataset(config['dataset']['test_path'],transform=transform)
     

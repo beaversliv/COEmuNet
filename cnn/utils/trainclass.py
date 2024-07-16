@@ -2,7 +2,7 @@ import torch
 import torch.distributed as dist
 from torch.autograd import Variable
 
-from loss                 import calculate_ssim_batch,MaxRel
+from .loss                 import calculate_ssim_batch,MaxRel
 from tqdm                 import tqdm
 import numpy as np
 import h5py  as h5
@@ -13,9 +13,9 @@ import pickle
 import time
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-def load_statistics(statistics_values,file_path):
+def load_statistics(statistics_path,statistics_values):
         statistics = {}
-        with h5.File(file_path, 'r') as f:
+        with h5.File(statistics_path, 'r') as f:
             for value in statistics_values:
                 feature = value['name']
                 stats_to_read = value['stats']

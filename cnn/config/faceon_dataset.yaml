@@ -9,7 +9,6 @@ dataset:
   statistics: 
     path: "/home/dc-su2/physical_informed/data/preprocess/statistic/faceon.hdf5"
     values:
-      values:
       - name: velocity
         stats: ['mean','std']
       - name: temperature

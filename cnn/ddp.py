@@ -70,7 +70,7 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    transform = PreProcessingTransform(config['dataset']['statistics']['path'],config['dataset']['statistics']['values'])
+    transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
     train_dataset = IntensityDataset(config['dataset']['train_path'],transform=transform)
     test_dataset  = IntensityDataset(config['dataset']['test_path'],transform=transform)
     
@@ -84,7 +84,7 @@ def main():
     model = Net(config['dataset']['grid'])
     model = model.to(local_rank)
     map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
+    checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/checkpoint.pth'
     model.load_state_dict(torch.load(checkpoint, map_location=map_location))
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
