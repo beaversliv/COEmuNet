@@ -47,18 +47,62 @@ def img_plt(target,pred,path):
         plt.savefig(f'{path}ex{i}.png')
         plt.close()
 
-def history_plt(trainLoss:list,valLoss:list,path:str):
-    ''' 
-    plot training history according to train and validation losses.
-    '''
-    epoch = len(trainLoss)
-    plt.figure(figsize=(6,4))
-    plt.plot(np.arange(epoch),trainLoss,label='train')
-    plt.plot(np.arange(epoch),valLoss,label='val')
-    plt.legend()
-    plt.title('Training History')
-    plt.xlabel('epoch')
-    plt.ylabel('MSE + Sobel edge detection')
-    plt.grid(True)
-    plt.savefig(f'{path}history.png')
-    plt.show()
+class HistoryShow:
+    def __init__(self,log_file,save_img_path):
+        self.log_file = log_file
+        self.save_img_path = save_img_path
+    def read_training_messages(self):
+        with open(self.log_file, 'r') as file:
+            return file.read() 
+    def history_show(self): 
+        training_messages = self.read_training_messages()
+        epochs = []
+        train_loss = []
+        train_feature = []
+        train_mse = []
+        val_loss = []
+        val_feature = []
+        val_mse = []
+        val_maxrel = []
+        val_ssim = []
+
+        # Regular expression to extract values from the text
+        pattern = re.compile(
+            r"epoch:(\d+), train_loss:(\d+\.\d+),train_feature:(\d+\.\d+),train_mse:(\d+\.\d+),val_loss:(\d+\.\d+),val_feature:(\d+\.\d+),val_mse:(\d+\.\d+),val_maxrel:(\d+\.\d+),val_ssim:\[(.*?)\]"
+        )
+        for match in pattern.finditer(training_messages):
+            epochs.append(int(match.group(1)))
+            train_loss.append(float(match.group(2)))
+            train_feature.append(float(match.group(3)))
+            train_mse.append(float(match.group(4)))
+            val_loss.append(float(match.group(5)))
+            val_feature.append(float(match.group(6)))
+            val_mse.append(float(match.group(7)))
+            val_maxrel.append(float(match.group(8)))
+            # Parse the nested SSIM values
+            ssim_values = match.group(9)
+            ssim_list = [float(ssim) for ssim in ssim_values.split(', ')]
+            val_ssim.append(ssim_list)
+            
+        ssim_transposed = list(map(list, zip(*val_ssim)))
+        fig,axes = plt.subplots(1,3, figsize=(20,5))
+        
+        axes[0].plot(epochs,train_loss, label='train')
+        axes[0].plot(epochs,val_loss,label='val')
+        axes[0].legend()
+        axes[0].set_title('Training History')
+        axes[0].set_xlabel('epoch')
+        axes[0].set_ylabel('Feature loss + MSE loss')
+        axes[0].grid(True)
+
+        axes[1].plot(epochs, val_maxrel)
+        axes[1].set_title('MaxRel History')
+        axes[1].set_xlabel('epoch')
+        axes[1].grid(True)
+        num_freqs = 7
+        for freq_idx, freq_ssim in enumerate(ssim_transposed):
+            plt.plot(epochs, freq_ssim, label=f'Frequency {freq_idx}')
+        axes[2].set_title('SSIM History')
+        axes[2].set_xlabel('epoch')
+        axes[2].grid(True)
+        plt.savefig(self.save_img_path)
