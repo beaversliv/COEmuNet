@@ -191,7 +191,7 @@ def main():
     comm  = MPI.COMM_WORLD
     rank  = comm.Get_rank()
     nproc = comm.Get_size()
-    if args.mul_freq:
+    if args.mulfreq:
         transition = 1
     else:
         transition = 0
@@ -216,7 +216,7 @@ def main():
         model_file = model_files[file_idx]
         print(f'Rank {rank} processing file {model_file} with rotation {rotation_idx}')
         
-        if args.mul_freq:
+        if args.mulfreq:
             gen_file = data_path_files(model_file,rotation_idx,gen_path='physical_forward/mul_freq/grid64')
         else:
             gen_file = data_path_files(model_file,rotation_idx,gen_path='physical_forward/sgl_freq/grid64')
