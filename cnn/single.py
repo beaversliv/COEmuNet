@@ -6,7 +6,6 @@ from torch.autograd import Variable
 from utils.dataloader     import PreProcessingTransform,IntensityDataset
 from utils.ResNet3DModel          import Net
 from utils.loss           import FreqMse
-from utils.plot           import img_plt,history_plt
 from utils.config         import parse_args,load_config,merge_config
 from utils.trainclass     import Trainer
 # helper packages
