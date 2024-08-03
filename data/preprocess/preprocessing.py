@@ -31,7 +31,7 @@ class preProcessing:
     def get_data(self):
         x , y = self.outliers()
 
-        feature = ['vel','temp','co']
+        feature = ['velocity','temperature','density']
         x_t = np.transpose(x, (1, 0, 2, 3, 4))
         for idx in range(3):
             if idx == 0:
@@ -56,7 +56,7 @@ class preProcessing:
 
         median_y = np.median(y)
         y = y/median_y
-        self.meta['y'] = {'min':min_y, 'median':median_y}
+        self.meta['intensity'] = {'min':min_y, 'median':median_y}
 
         self.save_meta_hdf5(self.meta, self.stats_path)
         print(f'post-processing value:{self.meta}')
