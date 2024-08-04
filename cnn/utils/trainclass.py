@@ -181,11 +181,14 @@ class Trainer:
                 self.logger.info(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
     def postProcessing(self, target,pred):
         def transformation(y):
-            min_   = self.dataset_stats['intensity']['min']
-            median = self.dataset_stats['intensity']['median']
-            # max_   = self.dataset_stats['max']
-            y = y*median + min_
-            # y = y*(max_ - min_)+min_
+            if self.config['dataset']['name'] =='mulfreq':
+                max_   = self.dataset_stats['intensity']['max']
+                min_   = self.dataset_stats['intensity']['min']
+                y = y*(max_ - min_)+min_
+            else:
+                min_   = self.dataset_stats['intensity']['min']
+                median = self.dataset_stats['intensity']['median']
+                y = y*median + min_
             y = np.exp(y)
             return y
         return transformation(target), transformation(pred)
