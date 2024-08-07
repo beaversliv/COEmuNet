@@ -38,12 +38,13 @@ class Logging:
             with open(self.log_file, 'a') as f:  # a for append to the end of the file.
                 print(message, file=f)
 class Trainer:
-    def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device):
+    def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,scheduler=None):
         print("Initializing Trainer...")
         start_time = time.time()
         self.model = model
         self.loss_object = loss_object
         self.optimizer   = optimizer
+        self.scheduler        = scheduler
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
         self.config = config
@@ -121,6 +122,8 @@ class Trainer:
             torch.cuda.empty_cache()  # Clear cache after evaluation
             self.log_metrics(epoch, train_loss, train_feature,train_mse,tr_p,tr_t, 
                                     val_loss, val_feature,val_mse,val_p, val_t)
+            if self.scheduler:
+                self.scheduler.step()
             # if patience_counter >= self.config['patience']:
             #     print("Early stopping triggered")
             #     break
@@ -173,10 +176,10 @@ class Trainer:
             self.logger.info(f'saved {history_path}!\n')
             self.logger.info('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
             self.logger.info('best loss', self.best_loss)
-            original_target,original_pred = self.postProcessing(target,pred)
+            original_target,original_pred = self.postProcessing(target.cpu().item(),pred.cpu().item())
             self.logger.info(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
 
-            avg_ssim = calculate_ssim_batch(target,pred)
+            avg_ssim = calculate_ssim_batch(target.cpu().item(),pred.cpu().item())
             for freq in range(len(avg_ssim)):
                 self.logger.info(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
     def postProcessing(self, target,pred):
@@ -314,14 +317,16 @@ class ddpTrainer:
                             f'val_mse:{val_mse.cpu().item()},'
                             f'val_maxrel:{relative_loss},'
                             f'val_ssim:{avg_ssim}')
- 
-        if relative_loss < self.best_loss:
-            self.best_loss = relative_loss
-            self.patience_counter = 0
+        if epoch % 5 == 0:
             model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
             torch.save(self.ddp_model.state_dict(), model_path)
-        else:
-            self.patience_counter += 1
+        # if relative_loss < self.best_loss:
+        #     self.best_loss = relative_loss
+        #     self.patience_counter = 0
+        #     model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
+        #     torch.save(self.ddp_model.state_dict(), model_path)
+        # else:
+        #     self.patience_counter += 1
         # if patience_counter >= self.config['patience']:
         #     print("Early stopping triggered")
         #     return True
