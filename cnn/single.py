@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset,random_split
 from torch.autograd import Variable
+from torch.optim.lr_scheduler import StepLR
 # custom helper functions
 from utils.dataloader     import PreProcessingTransform,IntensityDataset
-from utils.ResNet3DModel          import Net
+from utils.ResNet3DModel          import Net,Net3D
 from utils.loss           import FreqMse
 from utils.config         import parse_args,load_config,merge_config
 from utils.trainclass     import Trainer
@@ -43,8 +44,9 @@ def main():
     # x,y = np.random.rand(32,3,64,64,64),np.random.rand(32,1,64,64)
     
     # train test split
-    transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/faceon_grid64_data0.hdf5'],transform=transform)
+    # transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
+    transform = PreProcessingTransform(statistics_path='/home/dc-su2/physical_informed/data/preprocess/statistic/dummy.hdf5',statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
+    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/dummy_10000.hdf5'],transform=transform)
     print('train test split')
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))
@@ -57,23 +59,28 @@ def main():
 
     ### set a model ###
     print('load model')
-    model = Net(config['dataset']['grid']).to(device)
-    checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
-    model.load_state_dict(torch.load(checkpoint,map_location=device))
+    model = Net3D(freq=7).to(device)
+    model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
+    checkpoint = torch.load(model_dic,map_location=device)
+    model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
+
+    # checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/model.pth'
+    # model.load_state_dict(torch.load(checkpoint,map_location=device))
     
     loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(model.parameters(), **optimizer_params)
     ### start training ###
     print('start training')
+    scheduler = StepLR(optimizer,step_size=100,gamma=0.1)
     # Assuming model, loss_object, optimizer, train_dataloader, test_dataloader, config, and device are defined
-    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device)
+    trainer = Trainer(model, loss_object, optimizer, train_dataloader, test_dataloader, config, device,None)
     start = time.time()
     trainer.run()
     end = time.time()
     print(f'running time:{(end-start)/60} mins')
     
     ### validation ###
-    trainer.save(False)
+    trainer.save(True)
 if __name__ == '__main__':
     main()
