@@ -4,6 +4,7 @@ import random
 import os
 import time
 from mpi4py import MPI
+import sys
 def timing_decorator(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
@@ -40,8 +41,9 @@ def data_path_files(model_file,rotation_idx,gen_path):
 
 def file_paths_gen(num_rotations=50,gen_path='physical_forward/mul_freq/grid64'):
     model_files = model_find()
+    model_files = model_files[:1000]
     rotation_files = []
-    for idx in range(10903 * num_rotations):
+    for idx in range(len(model_files) * num_rotations):
         file_idx = idx // num_rotations
         rotation_idx = idx % num_rotations
         model_file = model_files[file_idx]
@@ -87,7 +89,7 @@ def main():
         train_files = file_paths[:split_index]
         test_files = file_paths[split_index:]
 
-        batch_size = 10903  # Adjust as needed based on memory constraints
+        batch_size = 10000  # Adjust as needed based on memory constraints
         # Batch train and test files
         train_batches = list(batch_files(train_files, batch_size))
         test_batches = list(batch_files(test_files, batch_size))
@@ -113,10 +115,10 @@ def main():
     for i in range(start_index, end_index):
         batch = all_batches[i]
         if i < len(train_batches):
-            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/train_{i}.hdf5'
+            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/dummy_train_{i}.hdf5'
         else:
             test_idx = i - len(train_batches)
-            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/test_{test_idx}.hdf5'
+            filename = f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/dummy_test_{test_idx}.hdf5'
         save_batch_to_hdf5(batch, filename)
         print(f'Rank {rank} saved {filename}')
 if __name__ =='__main__':

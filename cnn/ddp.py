@@ -5,7 +5,7 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import StepLR
 
-from utils.dataloader     import PreProcessingTransform,IntensityDataset
+from utils.dataloader     import PreProcessingTransform,IntensityDataset,MultiEpochsDataLoader
 from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -59,6 +59,7 @@ def main():
     rank          = int(os.environ.get("SLURM_PROCID"))
     gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
+    print(f'rank {rank} num workers:{num_workers}')
     print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
     setup(rank, world_size)
@@ -76,8 +77,8 @@ def main():
     test_dataset  = IntensityDataset(config['dataset']['test_path'],transform=transform)
     
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
-    train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
+    train_dataloader = MultiEpochsDataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
+    test_dataloader = MultiEpochsDataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
 
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
@@ -85,8 +86,7 @@ def main():
     model = Net(config['dataset']['grid'])
     model = model.to(local_rank)
     map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/checkpoint.pth'
-
+    checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/checkpoint6.pth'
     state_dict = torch.load(checkpoint,map_location=map_location)
     load_state_dict(model,state_dict)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
