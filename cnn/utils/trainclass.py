@@ -45,6 +45,7 @@ class Trainer:
         self.loss_object = loss_object
         self.optimizer   = optimizer
         self.scheduler        = scheduler
+        self.scaler = torch.cuda.amp.GradScaler()
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
         self.config = config
@@ -68,25 +69,21 @@ class Trainer:
         start_time = time.time()
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
-            
-        # print(f'data loading time: {time.time() - start_time:.4f}')
-        # sys.exit()
-            self.optimizer.zero_grad()
-            output = self.model(data)
-         
-            soble_loss,mse = self.loss_object(target, output)
-            loss = soble_loss + mse
-            
-            loss.backward()
-            self.optimizer.step()
-            # print(f'train time:{time.time()-start_time:.4f} s')
-
+            # Runs the forward pass under ``autocast``
+            with torch.autocast(device_type=self.device, dtype=torch.float16):
+                output = self.model(data)
+                soble_loss,mse = self.loss_object(target, output)
+                loss = soble_loss + mse
+                assert loss.dtype is torch.float32
+            # Exits ``autocast`` before backward().
+            self.scaler.scale(loss).backward()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
             total_loss  += loss.detach()
             total_soble += soble_loss.detach()
             total_mse   += mse.detach()
             P.append(output.detach())
             T.append(target.detach())
-        print(f'{self.train_dataloader.dataset.dataset.get_time()}')
         # self.logger.info(self.train_dataloader.dataset.dataset.get_time())
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
         epoch_soble = total_soble / len(self.train_dataloader)

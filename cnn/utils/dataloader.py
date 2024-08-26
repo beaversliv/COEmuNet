@@ -190,8 +190,8 @@ class AsyncChunkDataset(Dataset):
         start_time = time.time()
         print(f"[Worker {torch.utils.data.get_worker_info().id if torch.utils.data.get_worker_info() else 'Main'}] Loading file {self.file_paths[file_idx]} into memory... (call count: {self.load_call_count})")
         with h5.File(self.file_paths[file_idx], 'r') as f:
-            self.X = np.array(f['input'], dtype=np.float32)
-            self.Y = np.array(f['output'], dtype=np.float32)
+            self.X = np.array(f['input'], dtype=np.float16)
+            self.Y = np.array(f['output'], dtype=np.float16)
         self.file_cache[file_idx] = (self.X, self.Y)
         self.current_file_idx = file_idx
         print(f"[Worker {torch.utils.data.get_worker_info().id if torch.utils.data.get_worker_info() else 'Main'}] Loaded file {self.file_paths[file_idx]} in {time.time() - start_time:.2f} seconds")
@@ -212,10 +212,8 @@ class AsyncChunkDataset(Dataset):
         # Determine which file the index corresponds to
         file_idx, file_local_idx = self.find_file_index(idx)
 
-        # Load the file into memory if not already loaded
         if self.future is not None:
             self.future.result()
-
         # Load the file into memory if not already loaded
         if file_idx != self.current_file_idx:
             self.load_file_into_memory(file_idx)
