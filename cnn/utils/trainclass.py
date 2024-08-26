@@ -45,7 +45,7 @@ class Trainer:
         self.loss_object = loss_object
         self.optimizer   = optimizer
         self.scheduler        = scheduler
-        self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler = torch.amp.GradScaler()
         self.train_dataloader = train_dataloader
         self.test_dataloader  = test_dataloader
         self.config = config
@@ -70,8 +70,9 @@ class Trainer:
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             # Runs the forward pass under ``autocast``
-            with torch.autocast(device_type=self.device, dtype=torch.float16):
+            with torch.autocast(device_type=self.device.type, dtype=torch.float16):
                 output = self.model(data)
+                assert output.dtype is torch.float16
                 soble_loss,mse = self.loss_object(target, output)
                 loss = soble_loss + mse
                 assert loss.dtype is torch.float32
@@ -102,8 +103,9 @@ class Trainer:
         MSE = []
         for bidx, samples in enumerate(self.test_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
-            pred = self.model(data)
-            
+            with torch.autocast(device_type=self.device.type, dtype=torch.float16):
+                with torch.no_grad():
+                    pred = self.model(data)
             soble_loss,mse = self.loss_object(target, pred)
             loss = soble_loss + mse
             

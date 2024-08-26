@@ -43,8 +43,8 @@ def main():
     
     # train test split
     # transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    transform = PreProcessingTransform(statistics_path='/Users/ss1421/Documents/physical_informed/data/preprocess/statistic/dummy.hdf5',statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    dataset = AsyncChunkDataset(['/Users/ss1421/Desktop/clean_dummy_100.hdf5','/Users/ss1421/Desktop/clean_dummy1_100.hdf5'],transform=None)
+    transform = PreProcessingTransform(statistics_path='../physical_informed/data/preprocess/statistic/dummy.hdf5',statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
+    dataset = AsyncChunkDataset(['/home/dp332/dp332/dc-su2/clean_dummy_100.hdf5'],transform=None)
     print('train test split')
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))

@@ -66,6 +66,9 @@ class FreqMse(nn.Module):
         self.beta      = beta
 
     def calculate_freq_loss(self,target,pred):
+        # ensure FFT takes float32
+        target = target.to(torch.float32)
+        pred   = pred.to(torch.float32)
         target_freq = torch.fft.fft2(target)
         pred_freq = torch.fft.fft2(pred)
         return torch.mean(torch.abs(target_freq - pred_freq))
