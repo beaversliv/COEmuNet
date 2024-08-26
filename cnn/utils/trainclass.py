@@ -2,8 +2,8 @@ import torch
 import torch.distributed as dist
 from torch.autograd import Variable
 
-from .loss                 import calculate_ssim_batch,MaxRel
-from tqdm                 import tqdm
+from utils.loss     import calculate_ssim_batch,MaxRel
+from tqdm           import tqdm
 import numpy as np
 import h5py  as h5
 import os
@@ -65,21 +65,29 @@ class Trainer:
         total_mse  = 0.
         P,T = [],[]
         self.model.train()
+        start_time = time.time()
         for bidx, samples in enumerate(self.train_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
+            
+        # print(f'data loading time: {time.time() - start_time:.4f}')
+        # sys.exit()
             self.optimizer.zero_grad()
             output = self.model(data)
+         
             soble_loss,mse = self.loss_object(target, output)
             loss = soble_loss + mse
             
             loss.backward()
             self.optimizer.step()
+            # print(f'train time:{time.time()-start_time:.4f} s')
 
             total_loss  += loss.detach()
             total_soble += soble_loss.detach()
             total_mse   += mse.detach()
             P.append(output.detach())
             T.append(target.detach())
+        print(f'{self.train_dataloader.dataset.dataset.get_time()}')
+        # self.logger.info(self.train_dataloader.dataset.dataset.get_time())
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
         epoch_soble = total_soble / len(self.train_dataloader)
         epoch_mse = total_mse / len(self.train_dataloader)
@@ -98,6 +106,7 @@ class Trainer:
         for bidx, samples in enumerate(self.test_dataloader):
             data, target = Variable(samples[0]).to(self.device), Variable(samples[1]).to(self.device)
             pred = self.model(data)
+            
             soble_loss,mse = self.loss_object(target, pred)
             loss = soble_loss + mse
             
@@ -286,7 +295,7 @@ class ddpTrainer:
             aggregated_epoch_mse = epoch_mse/self.world_size
             # # Update history on master process
             if self.rank == 0:
-                pred, target, val_loss,val_feature,val_mse = self.test()
+                pred, target, val_loss,val_feature,val_mse = self.test() #todo 
                 self.log_metrics(epoch, aggregated_epoch_loss, aggregated_epoch_soble, aggregated_epoch_mse, val_loss, val_feature,val_mse, pred, target)
             if self.scheduler:
                 self.scheduler.step()
