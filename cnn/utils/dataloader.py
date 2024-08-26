@@ -78,7 +78,7 @@ class PreProcessingTransform:
 
         return xt,yt
 ### Custom Dataset ###
-class SingleSampleDataset(Dataset):
+class SequentialDataset(Dataset):
     def __init__(self, file_paths, transform=None):
         """
         Arguments:
@@ -124,9 +124,9 @@ class SingleSampleDataset(Dataset):
 
         self.data_loading_time += time.time() - start_time1
 
-        start_time = time.time()
         if self.remove_outlier(y):
             return self.__getitem__((idx + 1) % self.__len__())  # Skip to the next sample
+        start_time = time.time()
         if self.transform:
             xt,yt = self.transform(x, y)
         else: 
@@ -154,7 +154,7 @@ class SingleSampleDataset(Dataset):
             return True
         return False
     
-class FullDataset(Dataset):
+class AsyncChunkDataset(Dataset):
     def __init__(self, file_paths, transform=None):
         self.file_paths = file_paths
         self.transform = transform
@@ -167,6 +167,11 @@ class FullDataset(Dataset):
         self.data_loading_time = 0
         self.data_idx_finding_time = 0
         self.data_transform_time   = 0
+
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.future = None
+        self.load_file_into_memory(0)
+        self._prefetch_next_file(1)
 
     def get_time(self):
         time_str = f"load_time: {self.data_loading_time}, idx_find_time: {self.data_idx_finding_time}, transform time:{self.data_transform_time}"
@@ -190,7 +195,10 @@ class FullDataset(Dataset):
         self.file_cache[file_idx] = (self.X, self.Y)
         self.current_file_idx = file_idx
         print(f"[Worker {torch.utils.data.get_worker_info().id if torch.utils.data.get_worker_info() else 'Main'}] Loaded file {self.file_paths[file_idx]} in {time.time() - start_time:.2f} seconds")
-
+    def _prefetch_next_file(self, next_file_idx):
+        """Asynchronously prefetch the next file."""
+        if next_file_idx < len(self.file_paths):
+            self.future = self.executor.submit(self.load_file_into_memory, next_file_idx)
     def __len__(self):
         # Total length across all files
         return sum(self.get_file_length(fp) for fp in self.file_paths)
@@ -205,7 +213,14 @@ class FullDataset(Dataset):
         file_idx, file_local_idx = self.find_file_index(idx)
 
         # Load the file into memory if not already loaded
-        self.load_file_into_memory(file_idx)
+        if self.future is not None:
+            self.future.result()
+
+        # Load the file into memory if not already loaded
+        if file_idx != self.current_file_idx:
+            self.load_file_into_memory(file_idx)
+            # Start prefetching the next file asynchronously
+            self._prefetch_next_file(file_idx + 1)
 
         start_time = time.time()
         # Retrieve the specific data point
@@ -299,7 +314,6 @@ class zipDataset(Dataset):
             return True
         return False
     
-
 class MultiEpochsDataLoader(torch.utils.data.DataLoader):
 
     def __init__(self, *args, **kwargs):
@@ -330,14 +344,3 @@ class _RepeatSampler(object):
     def __iter__(self):
         while True:
             yield from iter(self.sampler)
-if __name__ == '__main__':
-    # Assume we have multiple HDF5 files
-    file_paths = ['/Users/ss1421/Desktop/dummy_100.hdf5','/Users/ss1421/Desktop/dummy1_100.hdf5']
-
-    # Create the dataset and DataLoader
-    dataset = FullDataset(file_paths)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=2)  # Using a single worker
-
-    # Iterate over the DataLoader
-    for i, (inputs, targets) in enumerate(dataloader):
-        print(f"Batch {i+1}: Loaded batch with shape {inputs.shape}")
