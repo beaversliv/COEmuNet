@@ -105,7 +105,7 @@ dataset:
   grid: 64
   batch_size: 128
   statistics: 
-    path: "/home/dc-su2/physical_informed/data/preprocess/statistic/mulfreq.hdf5"
+    path: "../physical_informed/data/preprocess/statistic/mulfreq.hdf5"
     values:
       - name: velocity
         stats: ['mean','std']
@@ -132,7 +132,7 @@ optimizer:
     amsgrad: false
 
 output:
-  save_path: "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul"
+  save_path: "../results"
   logfile: "log_file.txt"
   model_name: "model.pth"
   results: "history.pkl"
