@@ -11,7 +11,7 @@ from utils.trainclass     import ddpTrainer
 from utils.ResNet3DModel  import Net
 from utils.loss           import FreqMse
 from utils.config         import parse_args,load_config,merge_config
-from utils.dataloader     import PreProcessingTransform,IntensityDataset
+from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset
 # from utils.plot           import img_plt
 
 import h5py as h5
@@ -77,7 +77,7 @@ def main():
     torch.cuda.manual_seed_all(config['model']['seed'])
 
     transform = PreProcessingTransform(config['dataset']['statistics']['path'],config['dataset']['statistics']['values'])
-    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/faceon_grid64_data0.hdf5'],transform=transform)
+    dataset = AsyncChunkDataset(['/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/faceon_grid64_data0.hdf5'],transform=transform)
 
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))

@@ -5,7 +5,7 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import StepLR
 
-from utils.dataloader     import PreProcessingTransform,IntensityDataset,MultiEpochsDataLoader
+from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset,MultiEpochsDataLoader
 from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -73,8 +73,8 @@ def main():
     torch.cuda.manual_seed_all(config['model']['seed'])
 
     transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    train_dataset = IntensityDataset(config['dataset']['train_path'],transform=transform)
-    test_dataset  = IntensityDataset(config['dataset']['test_path'],transform=transform)
+    train_dataset = AsyncChunkDataset(config['dataset']['train_path'],transform=transform)
+    test_dataset  = AsyncChunkDataset(config['dataset']['test_path'],transform=transform)
     
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = MultiEpochsDataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)

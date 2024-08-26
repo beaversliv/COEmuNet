@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd import Variable
 # custom helper functions
-from utils.dataloader     import CustomTransform,IntensityDataset
+from utils.dataloader     import CustomTransform,AsyncChunkDataset
 from utils.ResNet3DModel  import Net3D,Net
 from utils.trainclass     import Trainer
 from utils.loss           import relativeLoss,RelativeLoss,SobelMse,mean_absolute_percentage_error, calculate_ssim_batch

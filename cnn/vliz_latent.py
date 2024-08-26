@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset,random_split
-from utils.dataloader     import PreProcessingTransform,IntensityDataset,AddGaussianNoise1,CustomCompose
+from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset,AddGaussianNoise1,CustomCompose
 from utils.config         import parse_args,load_config,merge_config
 from torch.autograd import Variable
 from utils.ResNet3DModel  import Encoder,Decoder
@@ -75,7 +75,7 @@ def main():
     config = merge_config(args, config)    
     ### data pre-processing ###
     transform = PreProcessingTransform(config['dataset']['statistics']['path'])
-    dataset = IntensityDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'],transform=transform)
+    dataset = AsyncChunkDataset(['/home/dc-su2/rds/rds-dirac-dr004/Magritte/random_grid64_data.hdf5'],transform=transform)
 
     train_size = int(0.8 * len(dataset))
     test_size = int(0.2 * len(dataset))

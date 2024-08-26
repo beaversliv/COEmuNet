@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, TensorDataset,DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.profiler import profile, record_function, ProfilerActivity
 
-from utils.dataloader     import CustomTransform,IntensityDataset
+from utils.dataloader     import CustomTransform,SequentialDataset
 
 from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.plot           import img_plt,history_plt

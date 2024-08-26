@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd   import Variable
 
 from utils.ResNet3DModel  import Net
-from utils.dataloader     import CustomTransform,IntensityDataset
+from utils.dataloader     import CustomTransform,AsyncChunkDataset
 from utils.loss           import SobelMse,calculate_ssim_batch
 from utils.preprocessing  import preProcessing
 

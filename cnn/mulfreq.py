@@ -5,7 +5,7 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import StepLR
 
-from utils.dataloader     import PreProcessingTransform,IntensityDataset,MultiEpochsDataLoader
+from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset,MultiEpochsDataLoader
 from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -79,8 +79,8 @@ def main():
     transform = PreProcessingTransform(statistics_path='/home/dc-su2/physical_informed/data/preprocess/statistic/dummy.hdf5',statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
     train_paths = [f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/dummy_train_{i}.hdf5' for i in range(4)]
     test_paths = [f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/dummy_test_{i}.hdf5' for i in range(1)]
-    train_dataset = IntensityDataset(train_paths,transform=transform)
-    test_dataset  = IntensityDataset(test_paths,transform=transform)
+    train_dataset = AsyncChunkDataset(train_paths,transform=transform)
+    test_dataset  = AsyncChunkDataset(test_paths,transform=transform)
     
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
     train_dataloader = MultiEpochsDataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)

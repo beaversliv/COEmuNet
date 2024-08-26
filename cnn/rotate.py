@@ -13,7 +13,7 @@ from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.profiler           import profile, record_function, ProfilerActivity
 from torch.optim.lr_scheduler import StepLR,CosineAnnealingLR,CyclicLR
 
-from utils.dataloader     import PreProcessingTransform,IntensityDataset,AddGaussianNoise1,CustomCompose
+from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset,AddGaussianNoise1,CustomCompose
 from utils.loss           import SobelMse,FreqMae,SobelMae,mean_absolute_percentage_error, calculate_ssim_batch
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -82,8 +82,8 @@ def main():
     train_file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/Rotation/train_{i}.hdf5' for i in range(40)]
     test_file_paths = [f'/home/dc-su2/rds/rds-dirac-dp147/vtu_oldmodels/Magritte-examples/physical_forward/sgl_freq/grid64/Rotation/test_{i}.hdf5' for i in range(10)]
     # train test split
-    train_dataset = IntensityDataset(train_file_paths,transform=transform)
-    test_dataset = IntensityDataset(test_file_paths,transform=transform)
+    train_dataset = AsyncChunkDataset(train_file_paths,transform=transform)
+    test_dataset = AsyncChunkDataset(test_file_paths,transform=transform)
     # Don't del following lines
     # train_size = int(0.8 * len(dataset))
     # test_size = int(0.2 * len(dataset))
