@@ -50,4 +50,4 @@ The configurations for different datasets are written as
         --save_path <custom directory>
     ```
 ## Reproducing Experiment
-The checkpoint can be downloaded from my [drive]
+The checkpoint can be downloaded from my [drive](https://drive.google.com/drive/u/0/folders/1fd_qnxDGi7ToZFCRMursole7MeHhk-QR)
