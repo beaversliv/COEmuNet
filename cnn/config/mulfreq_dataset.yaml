@@ -132,7 +132,8 @@ optimizer:
     amsgrad: false
 
 output:
-  save_path: "../results"
+  save_path: "../results/mulfreq/"
   logfile: "log_file.txt"
   model_name: "model.pth"
   results: "history.pkl"
+  history_img: 'history.png'

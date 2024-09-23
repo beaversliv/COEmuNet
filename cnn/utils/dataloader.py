@@ -1,5 +1,6 @@
 import h5py as h5
 import numpy as np
+import os
 import sys
 import warnings
 warnings.filterwarnings('error', category=RuntimeWarning)
@@ -124,16 +125,19 @@ class SequentialDataset(Dataset):
 
         self.data_loading_time += time.time() - start_time1
 
-        if self.remove_outlier(y):
-            return self.__getitem__((idx + 1) % self.__len__())  # Skip to the next sample
         start_time = time.time()
         if self.transform:
             xt,yt = self.transform(x, y)
         else: 
             xt = x
             yt = y
+            # yt = np.transpose(yt,(2,0,1))
+            # yt = yt[np.newaxis,:,:,:]
         # end timing
         self.data_transform_time += time.time() - start_time
+        # convert to tensor
+        xt = torch.tensor(xt,dtype=torch.float32)
+        yt = torch.tensor(yt,dtype=torch.float32)
 
         # write in log
         # logger.info(f"Data loading time for index {idx}: {load_time} seconds")
@@ -155,12 +159,12 @@ class SequentialDataset(Dataset):
         return False
     
 class AsyncChunkDataset(Dataset):
-    def __init__(self, file_paths, transform=None):
+    def __init__(self, file_paths, dataset_name):
         self.file_paths = file_paths
-        self.transform = transform
+        self.dataset_name = dataset_name
         self.file_cache = {}
+        self.processed_files = set()
         self.current_file_idx = -1
-        self.load_call_count = 0
         self.X = None
         self.Y = None
  
@@ -168,10 +172,10 @@ class AsyncChunkDataset(Dataset):
         self.data_idx_finding_time = 0
         self.data_transform_time   = 0
 
-        self.executor = ThreadPoolExecutor(max_workers=1)
-        self.future = None
-        self.load_file_into_memory(0)
-        self._prefetch_next_file(1)
+        # self.executor = ThreadPoolExecutor(max_workers=1)
+        # self.future = None
+        # self.load_file_into_memory(0)
+        # self._prefetch_next_file(1)
 
     def get_time(self):
         time_str = f"load_time: {self.data_loading_time}, idx_find_time: {self.data_idx_finding_time}, transform time:{self.data_transform_time}"
@@ -179,26 +183,33 @@ class AsyncChunkDataset(Dataset):
         self.data_idx_finding_time = 0
         self.data_transform_time   = 0
         return time_str
+    
     def load_file_into_memory(self, file_idx):
         """Load the file into memory, but cache the loaded data."""
         if file_idx in self.file_cache:
             self.X, self.Y = self.file_cache[file_idx]
             self.current_file_idx = file_idx
             return
-
-        self.load_call_count += 1
+        if len(self.file_cache) > 2:
+            self.file_cache.clear()
         start_time = time.time()
-        print(f"[Worker {torch.utils.data.get_worker_info().id if torch.utils.data.get_worker_info() else 'Main'}] Loading file {self.file_paths[file_idx]} into memory... (call count: {self.load_call_count})")
+        print(f"[Worker {torch.utils.data.get_worker_info().id if torch.utils.data.get_worker_info() else 'Main'}] Loading file {self.file_paths[file_idx]} into memory... ")
         with h5.File(self.file_paths[file_idx], 'r') as f:
-            self.X = np.array(f['input'], dtype=np.float16)
-            self.Y = np.array(f['output'], dtype=np.float16)
-        self.file_cache[file_idx] = (self.X, self.Y)
+            self.X = np.array(f['input'], dtype=np.float32)
+            self.Y = np.array(f['output'], dtype=np.float32)
+        # self.file_cache[file_idx] = (self.X, self.Y)
         self.current_file_idx = file_idx
-        print(f"[Worker {torch.utils.data.get_worker_info().id if torch.utils.data.get_worker_info() else 'Main'}] Loaded file {self.file_paths[file_idx]} in {time.time() - start_time:.2f} seconds")
+        print(f"[Worker {torch.utils.data.get_worker_info().id if torch.utils.data.get_worker_info() else 'Main'}] Loaded file {self.file_paths[file_idx]} in {time.time() - start_time:.2f} seconds")    
+        self.processed_files.add(file_idx)
+
     def _prefetch_next_file(self, next_file_idx):
         """Asynchronously prefetch the next file."""
         if next_file_idx < len(self.file_paths):
             self.future = self.executor.submit(self.load_file_into_memory, next_file_idx)
+    def start_new_epoch(self):
+        """Reset processed files at the beginning of a new epoch."""
+        self.processed_files.clear()
+
     def __len__(self):
         # Total length across all files
         return sum(self.get_file_length(fp) for fp in self.file_paths)
@@ -212,28 +223,26 @@ class AsyncChunkDataset(Dataset):
         # Determine which file the index corresponds to
         file_idx, file_local_idx = self.find_file_index(idx)
 
-        if self.future is not None:
-            self.future.result()
+        # if self.future is not None:
+        #     self.future.result()
         # Load the file into memory if not already loaded
         if file_idx != self.current_file_idx:
             self.load_file_into_memory(file_idx)
             # Start prefetching the next file asynchronously
-            self._prefetch_next_file(file_idx + 1)
+            # self._prefetch_next_file(file_idx + 1)
 
         start_time = time.time()
         # Retrieve the specific data point
-        x = self.X[file_local_idx]
-        y = self.Y[file_local_idx]
+        xt = self.X[file_local_idx]
+        yt = self.Y[file_local_idx]
         self.data_loading_time += time.time() - start_time
 
         start_time = time.time()
-        if self.remove_outlier(y):
-            return self.__getitem__((idx + 1) % self.__len__())  # Skip to the next sample
-        if self.transform:
-            xt,yt = self.transform(x, y)
-        else: 
-            xt = x
-            yt = y
+        if self.dataset_name == 'mulfreq':
+            yt = yt[np.newaxis,:,:,:]
+
+        xt = torch.tensor(xt,dtype=torch.float32)
+        yt = torch.tensor(yt,dtype=torch.float32)
         self.data_transform_time += time.time() - start_time
         return xt, yt
 
@@ -247,70 +256,54 @@ class AsyncChunkDataset(Dataset):
                 return file_idx, file_local_idx
             running_total += file_length
         raise IndexError("Index out of range")
-    def remove_outlier(self,y):
-        y[y == 0.0] = np.min(y[y != 0.0])
-        y = np.log(y)
-        if np.min(y) <= -50:
-            return True
-        return False
-class zipDataset(Dataset):
-    def __init__(self, file_paths,transform=None):
-        self.file_paths = file_paths
-        self.transform  = transform
-        self.data_loading_time = 0.0
-        start_time = time.time()
-        # Load the entire ZIP file into memory
-        with open(self.file_paths, 'rb') as f:
-            self.zip_data = f.read()
-        print(f'data loading time:{time.time() - start_time:.4f}')
-        start_time = time.time()
-        # Decompress the HDF5 file in memory
-        with zipfile.ZipFile(io.BytesIO(self.zip_data), 'r') as z:
-            # Assuming the HDF5 file is the only file in the zip, or you know its name
-            hdf5_filename = z.namelist()[0]
-            
-            # Load the HDF5 file into an in-memory BytesIO buffer
-            with z.open(hdf5_filename) as hdf5_file:
-                self.hdf5_buffer = io.BytesIO(hdf5_file.read())
-        
-        # Open the HDF5 file from the in-memory buffer
-        self.hdf5_data = h5.File(self.hdf5_buffer, 'r')
-        
-        # Assuming 'input' and 'output' are datasets within the HDF5 file
-        self.input_data = self.hdf5_data['input']
-        self.output_data = self.hdf5_data['output']
-        print(f'decompress time:{time.time() - start_time:.4f}')
 
-    def get_time(self):
-        time_str = f"load_time: {self.data_loading_time}"
+class ChunkLoadingDataset(Dataset):
+    def __init__(self, file_list, mini_batch_size=128,dataset_name='rotation'):
+        """
+        Args:
+            file_list (list): List of file paths where data is stored.
+            mini_batch_size (int): The size of the mini-batches for each loaded chunk.
+            transform (callable, optional): Optional transform to be applied on a sample.
+        """
+        self.file_list = file_list  # List of chunked file paths (e.g., ['batch_0.hdf5', 'batch_1.hdf5', ...])
+        self.mini_batch_size = mini_batch_size
+        self.dataset_name = dataset_name
+        # Store the number of samples in each file
 
-        self.data_loading_time = 0.0
-        return time_str
+        self.file_lengths = []
+        for file_path in file_list:
+            with h5.File(file_path, 'r') as f:
+                self.file_lengths.append(f['input'].shape[0])
+
+        # Calculate cumulative number of samples (for indexing)
+        self.cumulative_file_lengths = np.cumsum(self.file_lengths)
+
     def __len__(self):
-        return len(self.input_data)
-    
+        total_samples = sum(self.file_lengths)
+        # Calculate the total number of mini-batches, including partial batches
+        num_batches = (total_samples + self.mini_batch_size - 1) // self.mini_batch_size
+        return num_batches  # Total mini-batches available
     def __getitem__(self, idx):
-        start_time = time.time()
-        # Get the input and output data for the specified index
-        x = self.input_data[idx]
-        y = self.output_data[idx]
-        self.data_loading_time += time.time() - start_time
-        
-        if self.remove_outlier(y):
-            return self.__getitem__((idx + 1) % self.__len__())  # Skip to the next sample
-        if self.transform:
-            xt,yt = self.transform(x, y)
-        else: 
-            xt = x
-            yt = y
-        return xt, yt
-        
-    def remove_outlier(self,y):
-        y[y == 0.0] = np.min(y[y != 0.0])
-        y = np.log(y)
-        if np.min(y) <= -50:
-            return True
-        return False
+        # Figure out which file and which batch inside the file corresponds to the index
+        # file_idx = idx // (10000 // self.mini_batch_size)  # Assuming 1000 samples per file
+        # mini_batch_idx = idx % (10000 // self.mini_batch_size)
+        global_sample_idx = idx * self.mini_batch_size
+        file_idx = np.searchsorted(self.cumulative_file_lengths, global_sample_idx, side='right')
+        # Adjust the index relative to the file
+        if file_idx == 0:
+            mini_batch_idx = global_sample_idx
+        else:
+            mini_batch_idx = global_sample_idx - self.cumulative_file_lengths[file_idx - 1]
+        file_path = self.file_list[file_idx]
+        with h5.File(file_path, 'r') as f:
+            start_idx = mini_batch_idx
+            end_idx = min(start_idx + self.mini_batch_size, f['input'].shape[0])
+            input_data = f['input'][start_idx:end_idx]
+            output_data = f['output'][start_idx:end_idx]
+
+        input_tensor = torch.tensor(input_data, dtype=torch.float32)
+        output_tensor = torch.tensor(output_data, dtype=torch.float32)
+        return input_tensor, output_tensor
     
 class MultiEpochsDataLoader(torch.utils.data.DataLoader):
 

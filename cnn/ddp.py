@@ -5,7 +5,7 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import StepLR
 
-from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset,MultiEpochsDataLoader
+from utils.dataloader     import ChunkLoadingDataset,SequentialDataset
 from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
@@ -23,8 +23,6 @@ import time
 import pickle
 import argparse
 from collections import OrderedDict
-import matplotlib.pyplot as plt
-from sklearn.model_selection      import train_test_split 
 import socket    
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
@@ -54,15 +52,22 @@ def cleanup():
     "Cleans up the distributed environment"
     dist.destroy_process_group()
 def main(): 
-    # Initialize any necessary components for DDP
+    ## Initialize any necessary components for DDP
     world_size    = int(os.environ.get("SLURM_NTASKS"))
     rank          = int(os.environ.get("SLURM_PROCID"))
-    gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
+    gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE",torch.cuda.device_count()))
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
+    print(f'number of gpus: {torch.cuda.device_count()}')
+    if gpus_per_node == 0:
+        print("No GPUs available on this node.")
+    else:
+        print(f"GPUs available: {gpus_per_node}")
     print(f'rank {rank} num workers:{num_workers}')
     print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
+
     setup(rank, world_size)
+    print('finish setup')
 
     args = parse_args()
     config = load_config(args.config)
@@ -72,48 +77,62 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    train_dataset = AsyncChunkDataset(config['dataset']['train_path'],transform=transform)
-    test_dataset  = AsyncChunkDataset(config['dataset']['test_path'],transform=transform)
-    
+    train_file_paths = [f'/home/dc-su2/dc-su2/Rotation/train_{i}.hdf5' for i in range(175)]
+    test_file_paths = [f'/home/dc-su2/dc-su2/Rotation/test_{i}.hdf5' for i in range(44)]
+    # train test split
+    train_dataset = SequentialDataset(train_file_paths,None)
+    test_dataset = SequentialDataset(test_file_paths,None)
+    # Don't del following lines
+    # train_size = int(0.8 * len(dataset))
+    # test_size = int(0.2 * len(dataset))
+    # val_size = len(dataset) - train_size - test_size
+    # train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
+
     sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
-    train_dataloader = MultiEpochsDataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
-    test_dataloader = MultiEpochsDataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
+    train_dataloader = DataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False,prefetch_factor=4)
+    test_dataloader = DataLoader(test_dataset, config['dataset']['batch_size'], num_workers=num_workers, shuffle=False,prefetch_factor=2)
 
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
     torch.cuda.set_device(local_rank)
 
-    model = Net(config['dataset']['grid'])
-    model = model.to(local_rank)
-    map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/sql/checkpoint6.pth'
-    state_dict = torch.load(checkpoint,map_location=map_location)
-    load_state_dict(model,state_dict)
+    model = Net(64)
+    model = model.to(local_rank)    
+    if torch.cuda.is_available():
+    # Use GPU
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
+    else:
+        # Use CPU
+        map_location = 'cpu'
+    model_dic = '/home/dc-su2/results/pretrained.pth'
+    model.load_state_dict(torch.load(model_dic, map_location=map_location))
+    # checkpoint = torch.load(model_dic,map_location=torch.device('cpu'))
+    # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
+    # model.decoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('decoder')}
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
+    # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
+    # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
+    # scheduler = CyclicLR(optimizer,base_lr=1e-3,max_lr=0.1,step_size_up=100,mode='triangular',cycle_momentum=False)
     # scheduler = StepLR(optimizer,step_size=10,gamma=0.1)
     loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=None)
     
     # Run the training and testing
-    dist.barrier()
+    ### start training ###
+    # trainer.eval()
+
     start = time.time()
-    if rank == 0:
-        print(f'rank {rank} starts training\n')
+    print(f'rank {rank} starts training\n')
     trainer.run()
     end = time.time()
-    # Synchronize all processes and stop the timer
-    dist.barrier()
-    if rank == 0:
-        print(f'running time: {(end - start) / 3600:.2f} hours')
-    trainer.save(True)
-    
+    print(f'running time:{(end-start)/3600:.4f} h')
+    trainer.save(False)
+   
     # Clean up
     cleanup()
-    print('clean up process')
 if __name__ == '__main__':
     main()

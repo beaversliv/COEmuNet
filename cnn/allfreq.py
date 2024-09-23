@@ -7,7 +7,7 @@ from utils.dataloader     import CustomTransform,AsyncChunkDataset
 from utils.ResNet3DModel  import Net3D,Net
 from utils.trainclass     import Trainer
 from utils.loss           import relativeLoss,RelativeLoss,SobelMse,mean_absolute_percentage_error, calculate_ssim_batch
-from utils.plot           import img_plt,history_plt
+from physical_informed.cnn.utils.utils           import img_plt,history_plt
 
 # helper packages
 import h5py as h5

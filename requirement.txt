@@ -1,6 +1,6 @@
-torch==2.2.2
-torchaudio==2.2.2
-torchvision==0.17.2
+torch==2.4.0
+torchaudio==2.4.0
+torchvision==0.19.0
 tqdm==4.66.4
 scikit-image==0.24.0
 scipy==1.14.0
@@ -8,3 +8,4 @@ h5py==3.11.0
 p3droslo==0.0.15
 astropy==6.1.1
 mpi4py==3.1.4
+pyyaml==6.0.2

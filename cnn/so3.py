@@ -16,7 +16,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 from utils.dataloader     import CustomTransform,SequentialDataset
 
 from utils.loss           import SobelMse,Lossfunction,ResNetFeatures,mean_absolute_percentage_error, calculate_ssim_batch
-from utils.plot           import img_plt,history_plt
+from physical_informed.cnn.utils.utils           import img_plt,history_plt
 
 import h5py as h5
 import numpy as np

@@ -5,17 +5,17 @@ from torch.utils.data         import DataLoader, TensorDataset,DistributedSample
 from torch.nn.parallel        import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import StepLR
 
-from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset,MultiEpochsDataLoader
+from utils.dataloader     import MultiEpochsDataLoader,ChunkLoadingDataset
 from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
-from utils.ResNet3DModel  import Net3D
+from utils.ResNet3DModel  import Net,Net3D
 from utils.loadModel      import load_state_dict
-# from utils.plot           import img_plt
+from utils.utils           import HistoryShow
 
 import h5py as h5
 import numpy as np
-from tqdm import tqdm
+import datetime
 import os
 import sys
 import json
@@ -23,9 +23,7 @@ import time
 import pickle
 import argparse
 from collections import OrderedDict
-import matplotlib.pyplot as plt
-from sklearn.model_selection      import train_test_split 
-import socket    
+import socket   
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
 
@@ -73,27 +71,26 @@ def main():
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    # transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    # train_dataset = IntensityDataset(config['dataset']['train_path'],transform=transform)
-    # test_dataset  = IntensityDataset(config['dataset']['test_path'],transform=transform)
-    transform = PreProcessingTransform(statistics_path='/home/dc-su2/physical_informed/data/preprocess/statistic/dummy.hdf5',statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    train_paths = [f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/dummy_train_{i}.hdf5' for i in range(4)]
-    test_paths = [f'/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/mul_freq/grid64/Rotation/dummy_test_{i}.hdf5' for i in range(1)]
-    train_dataset = AsyncChunkDataset(train_paths,transform=transform)
-    test_dataset  = AsyncChunkDataset(test_paths,transform=transform)
+    train_file_paths = [f'/home/dp332/dp332/dc-su2/dc-su2/Mulfreq/train_{i}.hdf5' for i in range(174)]
+    test_file_paths = [f'/home/dp332/dp332/dc-su2/dc-su2/Mulfreq/test_{i}.hdf5' for i in range(22)]
     
-    sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
-    train_dataloader = MultiEpochsDataLoader(train_dataset, config['dataset']['batch_size'],sampler=sampler, pin_memory=True, num_workers=num_workers, shuffle=False)
-    test_dataloader = MultiEpochsDataLoader(test_dataset, batch_size=config['dataset']['batch_size'], num_workers=num_workers, shuffle=False)
+    train_dataset = ChunkLoadingDataset(train_file_paths,config['dataset']['batch_size'],config['dataset']['name'])
+    test_dataset = ChunkLoadingDataset(test_file_paths,config['dataset']['batch_size'],config['dataset']['name'])
+    
+    sampler_train = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
+    train_dataloader = MultiEpochsDataLoader(train_dataset, 1,sampler=sampler_train, pin_memory=True, num_workers=num_workers, shuffle=False)
+
+    sampler_test = DistributedSampler(test_dataset, num_replicas=world_size, rank=rank, shuffle=True, drop_last=False)
+    test_dataloader = MultiEpochsDataLoader(test_dataset, 1, sampler=sampler_test,num_workers=num_workers, shuffle=False)
     torch.cuda.set_device(local_rank)
 
     model = Net3D(freq=7)
     model = model.to(local_rank)
     map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    # model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
+    # model_dic = '/home/dp332/dp332/dc-su2/results/pretrained.pth'
     # checkpoint = torch.load(model_dic,map_location=map_location)
     # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
-    checkpoint='/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/model.pth'
+    checkpoint='/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq.pth'
     state_dict = torch.load(checkpoint,map_location=map_location)
     load_state_dict(model,state_dict)
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
@@ -118,6 +115,13 @@ def main():
     if rank == 0:
         print(f'running time: {(end - start) / 3600:.2f} hours')
     trainer.save(True)
+    if rank == 0:
+        log_file = config['output']['logfile']
+        pkl_file = config['output']['results']
+        save_path = config['ouput']['history_img']
+        history_plot = HistoryShow(log_file,pkl_file)
+        history_plot.history_show(save_path)
+        history_plot.mulfreq_impl(img_dir='/home/dp332/dp332/dc-su2/results/mulfreq/img/')
     
     # Clean up
     cleanup()

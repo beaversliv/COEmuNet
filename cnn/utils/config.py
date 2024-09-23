@@ -20,6 +20,7 @@ def parse_args():
     parser.add_argument('--logfile', type=str,help='training history')
     parser.add_argument('--model_name', type=str,help='saved model name')
     parser.add_argument('--results', type=str,help='saved target and pred')
+    parser.add_argument('--history_img', type=str,help='train test value vs epoch')
     
     args = parser.parse_args()
     return args
@@ -49,6 +50,8 @@ def merge_config(args, config):
         config['output']['logfile'] = args.logfile
     if args.model_name is not None:
         config['output']['model_name'] = args.model_name
+    if args.history_img is not None:
+        config['output']['history_img'] = args.history_img
     if args.results is not None:
         config['output']['results'] = args.results  
     if 'optimizer' in config and config['optimizer']['type'] == 'adam':

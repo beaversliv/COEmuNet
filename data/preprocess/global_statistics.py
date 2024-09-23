@@ -55,8 +55,8 @@ class GlobalStatsCalculator:
     def __init__(self,files:list,batch_size:int):
         self.files = files
         self.batch_size = batch_size
-        self.global_minI = -40.0
-        self.global_medianI = 0.0
+        self.global_minI = float('inf')
+        self.global_medianI = None
         self.global_maxI = float('-inf')
         self.global_minT = float('inf')
         self.global_minC = float('inf')
@@ -158,7 +158,7 @@ class GlobalStatsCalculator:
                 co = x_t[2]
                 self.process_stats(temp, 'global_minT', self.global_median_calculator_T, is_first_pass=True)
                 self.process_stats(co, 'global_minC', self.global_median_calculator_C, is_first_pass=True)
-                # self.process_stats(output_batch, 'global_minI', self.global_median_calculator_I, is_first_pass=True)
+                self.process_stats(output_batch, 'global_minI', self.global_median_calculator_I, is_first_pass=True)
                 self.find_global_max(output_batch,'global_maxI')
 
         self.finalize_std()

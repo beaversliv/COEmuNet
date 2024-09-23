@@ -83,6 +83,7 @@ class FreqMse(nn.Module):
         return self.alpha * loss_edge,self.beta * loss_mse
 
 def MaxRel(original_target,original_pred):
+    'relative loss in percentage'
     return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) * 100
 
 def calculate_ssim_batch(target,pred):

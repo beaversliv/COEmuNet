@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader, TensorDataset,random_split
 from torch.autograd import Variable
 from torch.optim.lr_scheduler import StepLR
 # custom helper functions
-from utils.dataloader     import PreProcessingTransform,AsyncChunkDataset
+from utils.dataloader     import PreProcessingTransform,ChunkLoadingDataset
 from utils.ResNet3DModel          import Net,Net3D
 from utils.loss           import FreqMse
 from utils.config         import parse_args,load_config,merge_config
@@ -43,28 +43,32 @@ def main():
     
     # train test split
     # transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    transform = PreProcessingTransform(statistics_path='../physical_informed/data/preprocess/statistic/dummy.hdf5',statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
-    dataset = AsyncChunkDataset(['/home/dp332/dp332/dc-su2/clean_dummy_100.hdf5'],transform=None)
+    # transform = PreProcessingTransform(statistics_path='../physical_informed/data/preprocess/statistic/dummy.hdf5',statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
+    dataset = ChunkLoadingDataset(['/home/dc-su2/dc-su2/Rotation/train_0.hdf5'],128,'random')
     print('train test split')
     train_size = int(0.7 * len(dataset))
     val_size = int(0.2 * len(dataset))
     test_size = len(dataset) - train_size - val_size
     train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, val_size, test_size])
-    # train_dataset,test_dataset = dataset,dataset
-    train_dataloader = DataLoader(train_dataset, batch_size= 32, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=config['dataset']['batch_size'], shuffle=False,num_workers=0)
+    #train_file_paths = ['/home/dc-su2/dc-su2/Rotation/train_{i}.hdf5' for i in range(4)]
+    #test_file_paths = [f'/home/dc-su2/dc-su2/Rotation/train_5.hdf5']
+    #train_dataset = LazyLoadingDataset(train_file_paths,mini_batch_size=config['dataset']['batch_size'],dataset_name=config['dataset']['name'])
+    #test_dataset  = LazyLoadingDataset(test_file_paths,mini_batch_size=config['dataset']['batch_size'],dataset_name=config['dataset']['name'])
+    train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=False,num_workers=4,pin_memory=True,prefetch_factor=2)
+    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False,num_workers=4,pin_memory=True,prefetch_factor=2)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     ### set a model ###
     print('load model')
-    model = Net3D(freq=7).to(device)
-    # model_dic = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results/best/pretrained.pth'
-    # checkpoint = torch.load(model_dic,map_location=device)
+    # model = Net3D(freq=7).to(device)
+    model = Net().to(device)
+    #model_dic = '/home/dc-su2/pretrained.pth'
+    #checkpoint = torch.load(model_dic,map_location=device)
     # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
 
-    # checkpoint = '/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/rotate/results/mul/model.pth'
-    # model.load_state_dict(torch.load(checkpoint,map_location=device))
+    checkpoint = '/home/dc-su2/results/pretrained.pth'
+    model.load_state_dict(torch.load(checkpoint,map_location=device))
     
     loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
     optimizer_params = config['optimizer']['params']
@@ -77,7 +81,7 @@ def main():
     start = time.time()
     trainer.run()
     end = time.time()
-    print(f'running time:{(end-start)} s')
+    print(f'running time:{(end-start)/3600 :4f} h')
     
     ### validation ###
     trainer.save(False)

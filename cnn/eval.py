@@ -13,8 +13,7 @@ import numpy              as np
 import h5py               as h5
 import logging
 from utils.ResNet3DModel  import Net3D,Net
-from thop                   import profile
-from sklearn.model_selection      import train_test_split 
+
 import pickle
 
 def time_eval(log_file:str,test_dataloader,device,model_path:str,grid:int):
