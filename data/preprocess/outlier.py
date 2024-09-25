@@ -3,6 +3,7 @@ import h5py as h5
 import os
 import json
 from mpi4py import MPI
+from utils  import Logging
 
 class PathFind:
     """
@@ -107,21 +108,30 @@ class PathFind:
         
         return rotation_files
 
-def outlier_detection(rotation_file):
+def outlier_detection(rotation_file,dataset_name):
     with h5.File(rotation_file,'r') as f:
-        y = np.array(f['I'][:,:,15:16],dtype=np.float32) # (64,64,1)
+        if dataset_name == 'mulfreq':
+            y = np.array(f['I'][:,:,15:16],dtype=np.float32) # (64,64,31)
+        else:
+            y = np.array(f['I'],dtype=np.float32) # (64,64,1)
     y[y == 0.0] = np.min(y[y != 0.0])
     y = np.log(y)
     return np.min(y) <= -50
 
-def main(dataset_name):
+def outlier_main(dataset_name,logger,non_outlier_file_path):
     # Initialize MPI
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
 
-    rotation_files_find = PathFind(num_rotations=100,gen_path=f'physical_forward/{dataset_name}/grid64')
+    if dataset_name == 'mulfreq':
+        gen_path = 'physical_forward/mul_freq/grid64'
+    else:
+        gen_path = 'physical_forward/sgl_freq/grid64'
+
+    rotation_files_find = PathFind(num_rotations=1,gen_path=gen_path)
     model_files = rotation_files_find.file_paths_gen()
+    model_files = model_files[:10]
 
     # Split the file list among the available processes
     files_per_proc = len(model_files) // size
@@ -133,11 +143,11 @@ def main(dataset_name):
     else:
         start_idx = rank * files_per_proc + remainder
         end_idx = start_idx + files_per_proc
-    print(f'total num jobs: {len(model_files)}, process {rank} do jobs {start_idx} - {end_idx}')
+    logger.info(f'total num jobs: {len(model_files)}, process {rank} do jobs {start_idx} - {end_idx}')
     local_non_outlier_files = []
     for i in range(start_idx, end_idx):
         model_file = model_files[i]
-        if not outlier_detection(model_file):
+        if not outlier_detection(model_file,dataset_name):
             local_non_outlier_files.append(model_file)
 
     # Gather all non-outlier files from all processes
@@ -146,12 +156,7 @@ def main(dataset_name):
     # Root process collects and flattens the list
     if rank == 0:
         non_outlier_files = [file for sublist in all_non_outlier_files for file in sublist]
-        print(f"Total non-outlier files collected: {len(non_outlier_files)}")
+        logger.info(f"Total non-outlier files collected: {len(non_outlier_files)}")
         # Optionally, save the list of non-outliers to a file
-        with open(f'data/preprocess/statistic/{dataset_name}_non_outliers.json', 'w') as f:
+        with open(non_outlier_file_path, 'w') as f:
             json.dump(non_outlier_files, f)
-
-if __name__ == "__main__":
-    dataset_name = 'mulfreq'
-    # dataset_name = 'random'
-    main(dataset_name)

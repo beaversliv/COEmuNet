@@ -9,8 +9,8 @@ import json
 import logging
 import argparse
 from collections import OrderedDict
-logger = logging.getLogger(__name__)
-logging.basicConfig(filename=f"data/preprocess/statistic/random_train_test_split.log", level=logging.INFO)
+from utils import check_file
+
 def timing_decorator(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
@@ -41,15 +41,28 @@ def save_batch_to_hdf5(rank, batch, filename):
             # os.remove(file)
         h5f['input'] = chunk_x
         h5f['output'] = chunk_y
+def parse_args():
+    parser = argparse.ArgumentParser(description="Select dataset and override config options")
+    parser.add_argument('--dataset', choices=['random', 'dummy','mulfreq', 'faceon'], required=True,
+                        help="Specify the dataset to use: 'random', 'mulfreq', or 'faceon'")
+    return parser.parse_args()
 
 @timing_decorator
-def main(dataset_name):
+def train_test_split_main(clean_file_path,logger):
+    args = parse_args()
+    dataset_name = args.dataset
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
+    
     if rank == 0:
-        with open(f'data/preprocess/statistic/{dataset_name}_clean_files.json', 'r') as f:
-            file_paths = json.load(f)
+        try:
+            with open(clean_file_path, 'r') as f:
+                    file_paths = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to open file {clean_file_path}. Please run outlier.py\n {e}")
+            comm.Abort()  # This will terminate all processes
+
         # Shuffle the file paths
         random.shuffle(file_paths)
         
@@ -84,10 +97,18 @@ def main(dataset_name):
     for i in range(start_index, end_index):
         batch = all_batches[i]
         if i < len(train_batches):
-            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{dataset_name}/grid64/Rotation/train_{i}.hdf5"
+            if dataset_name == 'mulfreq':
+                folder = 'mul_freq'
+            else:
+                folder = 'sgl_freq'
+            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{folder}/grid64/rotation3/train_{i}.hdf5"
         else:
+            if dataset_name == 'mulfreq':
+                folder = 'mul_freq'
+            else:
+                folder = 'sgl_freq'
             test_idx = i - len(train_batches)
-            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{dataset_name}/grid64/Rotation/test_{test_idx}.hdf5"
-        save_batch_to_hdf5(rank, batch, filename)
-if __name__ =='__main__':
-    main()
+            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{folder}/grid64/rotation3/test_{test_idx}.hdf5"
+        logger.info(f'saved {filename}')
+        # save_batch_to_hdf5(rank, batch, filename)
+

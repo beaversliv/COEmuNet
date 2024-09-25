@@ -6,11 +6,10 @@ from mpi4py import MPI
 import json
 from config.config         import parse_args,load_config
 import logging
-args = parse_args()
-config = load_config(args.config)
+import os
+from utils import check_file
+from utils  import Logging
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(filename=f"data/preprocess/statistic/{config['dataset']['name']}_transform.log", level=logging.INFO)
 class PreProcessingTransform:
     def __init__(self,statistics_path,statistics_values,dataset_name):
         self.dataset_name = dataset_name
@@ -55,30 +54,37 @@ class PreProcessingTransform:
             yt = np.transpose(yt,(2,0,1))
         return xt,yt
 
-def find_path():
-    with open(f"data/preprocess/statistic/{config['dataset']['name']}_non_outliers.json", 'r') as f:
-        model_files = json.load(f)
-    # model_files = model_files[:11]
+def find_path(dataset_name, non_outlier_file_path,logger):
+    try:
+        with open(non_outlier_file_path, 'r') as f:
+                model_files = json.load(f)
+    except Exception as e:
+        print(f"Warning: Failed to open file {non_outlier_file_path}. Please run outlier.py\n {e}")
+        comm.Abort()  # This will terminate all processes
     clean_files = []
     for model_file in model_files:
         listb = model_file.split('/')
         listb[-1] = 'clean_'+ listb[-1]
         clean_file = ('/').join(listb)
         clean_files.append(clean_file)
-    with open(f"data/preprocess/statistic/{config['dataset']['name']}_clean_files.json", 'w') as f:
+    with open(f"aluxinary_files/{dataset_name}_clean_files.json", 'w') as f:
             json.dump(clean_files, f)
     return model_files,clean_files
 
-def process_files(rank, model_files, clean_files):
-    transform = PreProcessingTransform(statistics_path=config['dataset']['statistics']['path'],
-                                        statistics_values=config['dataset']['statistics']['values'],dataset_name=config['dataset']['name'])
+
+def process_files(model_files, clean_files,dataset_config):
+    statistics_path = dataset_config['dataset']['statistics']['path'] 
+    statistics_values = dataset_config['dataset']['statistics']['values']
+    dataset_name = dataset_config['dataset']['name']
+    transform = PreProcessingTransform(statistics_path=statistics_path,
+                                        statistics_values=statistics_values,dataset_name = dataset_name)
 
     for model_file, clean_file in zip(model_files, clean_files):
         with h5.File(model_file, 'r') as f:
             co = np.array(f['CO'])
             tmp = np.array(f['temperature'])
             v_z = np.array(f['velocity_z'])
-            if config['dataset']['name'] == 'mulfreq':
+            if dataset_config['dataset']['name'] == 'mulfreq':
                 y = np.array(f['I'][:,:,12:19],dtype=np.float32)
             else:
                 y = np.array(f['I'],dtype=np.float32)
@@ -91,15 +97,18 @@ def process_files(rank, model_files, clean_files):
             h5f.create_dataset('input', data=xt)
             h5f.create_dataset('output', data=yt)
         # os.remove(model_file)
-def main():
+def transform_main(dataset_name, logger):
+    from utils import load_yaml
+    dataset_config = load_yaml(f'data/preprocess/config/{dataset_name}.yaml')
+    dataset_name = dataset_config['dataset']['name']
     # Initialize MPI
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
-
     # Find all file paths
     if rank == 0:
-        model_files, clean_files = find_path()
+        non_outlier_file_path = f'aluxinary_files/{dataset_name}_non_outliers.json'
+        model_files, clean_files = find_path(dataset_name, non_outlier_file_path,logger)
         # model_files,clean_files = model_files[:5],clean_files[:5]
     else:
         model_files,clean_files = None,None
@@ -124,8 +133,6 @@ def main():
             logger.info(f"round {round_idx} Process {rank} received no data.")
             continue
 
-        process_files(rank, local_model_files, local_clean_files)
+        process_files(model_files, clean_files,dataset_config)
     # Finalize MPI
     comm.Barrier()
-if __name__=='__main__':
-    main()

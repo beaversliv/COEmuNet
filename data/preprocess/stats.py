@@ -4,8 +4,9 @@ import os
 import sys
 import json
 from mpi4py import MPI
-import logging
 
+from utils import check_file
+from utils  import Logging
 class Stats:
     '''
     Calculate and save statistic of provided data. Suitable for smaller dataset
@@ -81,15 +82,21 @@ def save_meta_hdf5(meta, filename='meta.h5'):
             for subkey, value in subdict.items():
                 grp.create_dataset(subkey, data=value)
 
-def stats_main(dataset_name,non_outlier_file_path):
-    logger = logging.getLogger(__name__)
-    logging.basicConfig(filename=f'/home/dc-su2/physical_informed/data/preprocess/statistic/{dataset_name}.log', level=logging.INFO)
+def stats_main(dataset_name,logger,non_outlier_file_path):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
-
-    with open(non_outlier_file_path, 'r') as f:
-        model_files = json.load(f)
+    if rank == 0:
+        try:
+            with open(non_outlier_file_path, 'r') as f:
+                model_files = json.load(f)
+        except Exception as e:
+            logger.info(f"Warning: Failed to open file {non_outlier_file_path}. {e}")
+            comm.Abort()  # This will terminate all processes
+    else:
+        model_files = None
+    model_files = comm.bcast(model_files, root=0)
+    logger.info(f'rank {rank} received {len(model_files)} files')
     chunk_size = 2000
     total_num_files = len(model_files)
     files_per_round = chunk_size * size
@@ -215,10 +222,6 @@ def stats_main(dataset_name,non_outlier_file_path):
                 'density': {'min': global_c_min, 'median': global_c_median},
                 'intensity': {'min': global_y_min, 'median': global_y_median}
             }
-        print(global_stats)
         logger.info(global_stats)
-        save_meta_hdf5(global_stats,f'data/preprocess/statistic/new_{dataset_name}.hdf5')
+        save_meta_hdf5(global_stats,f'data/preprocess/statistic/{dataset_name}.hdf5')
         logger.info(f'saved new_{dataset_name} stats')
-
-if __name__ == "__main__":
-    stats_main(dataset_name='mulfreq',non_outlier_file_path='/home/dc-su2/physical_informed/data/preprocess/statistic/mulfreq_non_outliers.json')
