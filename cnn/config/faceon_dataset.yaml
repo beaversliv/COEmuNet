@@ -45,7 +45,9 @@ optimizer:
 #     cycle_momentum: false 
 
 output:
-  save_path: "/home/dc-su2/rds/rds-dirac-dp225-5J9PXvIKVV8/3DResNet/grid64/original/results"
-  logfile: "log_file.txt"
-  model_name: "model.pth"
-  results: "results.pkl"
+  save_path: "../results/faceon"
+  log_file: "log_file.txt"
+  model_file: "model.pth"
+  pkl_file: "history.pkl"
+  history_img: 'history.png'
+  img_dir: "../results/faceon/img"

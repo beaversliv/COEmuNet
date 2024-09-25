@@ -1,9 +1,19 @@
 dataset:
   name: "rotation"
+  train_path: 
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/train_0.hdf5"
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/train_1.hdf5"
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/train_2.hdf5"
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/train_3.hdf5"
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/train_4.hdf5"
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/train_5.hdf5"
+  test_path:
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/test_0.hdf5"
+    - "/home/dp332/dp332/dc-su2/dc-su2/rotation3/test_1.hdf5"
   grid: 64
   batch_size: 128
   statistics: 
-    path: "data/preprocess/statistic/rotation.hdf5"
+    path: "data/preprocess/statistic/rotation3.hdf5"
     values:
       - name: velocity
         stats: ['mean','std']
@@ -13,8 +23,6 @@ dataset:
         stats: ['min','median']
       - name: intensity
         stats: ['min','median']
-        # min : 'y/min'
-        # median: 'y/median'
 
 model:
   seed: 1234
