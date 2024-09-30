@@ -36,7 +36,7 @@ class Trainer:
         self.test_dataloader  = test_dataloader
         self.config = config
         self.device = device
-        logger = Logging(config['output']['save_path'], config['output']['logfile'])
+        logger = Logging(config['output']['save_path'], config['output']['log_file'])
         self.logger = logger
         self.best_loss = float('inf')  # Initialize best loss
         self.patience_counter = 0
@@ -145,7 +145,7 @@ class Trainer:
                  f'val_mse:{val_mse.cpu().item()}, '
                  f'val_maxrel:{vl_maxrel}, '
                  f'val_ssim:{vl_ssim}')
-        model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
+        model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
         torch.save(self.model.state_dict(), model_path)
         # if vl_maxrel < self.best_loss:
         #     self.best_loss = vl_maxrel
@@ -156,13 +156,13 @@ class Trainer:
         #     self.patience_counter += 1
         
     def save(self,save_hist=True):
-        model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
+        model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
         self.model.load_state_dict(torch.load(model_path,map_location=self.device))
         pred, target, test_loss,test_feature, test_mse = self.test()
         assert len(target) == len(pred), "Targets and predictions must have the same length"
         # Save the training history
         if save_hist:
-            history_path = os.path.join(self.config['output']['save_path'],self.config['output']['results'])
+            history_path = os.path.join(self.config['output']['save_path'],self.config['output']['pkl_file'])
             with open(history_path, "wb") as pickle_file:
                 pickle.dump({
                     "predictions": pred,
@@ -208,14 +208,9 @@ class ddpTrainer:
         self.optimizer        = optimizer
         self.scheduler        = scheduler
         self.loss_object      = loss_object
-        self.logger           = Logging(config['output']['save_path'], config['output']['logfile'])
-        # filename = os.path.join(config['output']['save_path'],config['output']['logfile'])
-        # logging.basicConfig(level=logging.INFO,  # Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        #             filename=filename,  # Optional: write logs to a file
-        #             filemode='w')
-        # self.logger = logging.getLogger(__name__)
+        self.logger           = Logging(config['output']['save_path'], config['output']['log_file'])
 
-        self.best_loss        = float('inf')  # Initialize best loss
+        self.best_loss = float('inf')
         self.patience_counter = 0
 
         statistics_path = config['dataset']['statistics']['path']
@@ -331,14 +326,26 @@ class ddpTrainer:
                             f'val_maxrel:{relative_loss},'
                             f'val_ssim:{avg_ssim}\n')
         
-        model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
-        torch.save(self.ddp_model.state_dict(), model_path)
-        self.logger.info(f'saved checkpoint {model_path}')
-        # if relative_loss < self.best_loss:
-        #     self.best_loss = relative_loss
-        #     self.patience_counter = 0
-        #     model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
-        #     torch.save(self.ddp_model.state_dict(), model_path)
+        model_path = os.path.join(self.config['output']['save_path'], {self.config['output']['model_file']})
+        torch.save( {
+            'epoch': epoch,
+            'model_state_dict':self.ddp_model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'current_maxrel':relative_loss,
+        },model_path)
+
+        self.logger.info(f"Model saved at epoch {epoch}")
+        if relative_loss < self.best_loss:
+            self.best_loss = relative_loss
+            # self.patience_counter = 0
+            model_path = os.path.join(self.config['output']['save_path'], 'best_sofar_'+self.config['output']['model_file'])
+            torch.save( {
+                'epoch': epoch,
+                'model_state_dict':self.ddp_model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'current_maxrel':relative_loss,
+            },model_path)
+            self.logger.info(f"Model saved at epoch {epoch}")
         # else:
         #     self.patience_counter += 1
         # if patience_counter >= self.config['patience']:
@@ -367,7 +374,7 @@ class ddpTrainer:
     def save(self, save_hist=False):
         if self.rank == 0:
             map_location = {'cuda:%d' % 0: 'cuda:%d' % self.local_rank}
-            model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_name'])
+            model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
             self.ddp_model.load_state_dict(torch.load(model_path, map_location=map_location))
 
             all_preds, all_targets, test_loss,test_feature,test_mse = self.test()
@@ -377,7 +384,7 @@ class ddpTrainer:
             assert len(all_preds) == len(all_preds), "Targets and predictions must have the same length"
             # Save the training history
             if save_hist:
-                history_path = os.path.join(self.config['output']['save_path'],self.config['output']['results'])
+                history_path = os.path.join(self.config['output']['save_path'],self.config['output']['pkl_file'])
                 with open(history_path, "wb") as pickle_file:
                     pickle.dump({
                         "predictions": all_preds[:20],
