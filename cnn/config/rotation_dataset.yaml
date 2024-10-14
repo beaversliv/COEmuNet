@@ -1,9 +1,9 @@
 dataset:
   name: "rotation"
   grid: 64
-  batch_size: 128
+  batch_size: 512
   statistics: 
-    path: "data/preprocess/statistic/rotation.hdf5"
+    path: "dataset/preprocess/statistic/rotation.hdf5"
     values:
       - name: velocity
         stats: ['mean','std']
@@ -21,6 +21,8 @@ model:
   epochs: 500
   alpha: 0.8
   beta: 0.2
+  resume_checkpoint: "/home/dp332/dp332/dc-su2/results/rotation/batch_512_001_2/batch_512_001_2.pth"
+  # resume_checkpoint: null
 
 optimizer:
   type: "adam"

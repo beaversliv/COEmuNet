@@ -1,13 +1,9 @@
 dataset:
   name: "faceon"
-  train_path: 
-    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/train_0.hdf5"
-  test_path:
-    - "/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Rotation/test_0.hdf5"
   grid: 64
   batch_size: 128
   statistics: 
-    path: "data/preprocess/statistic/faceon.hdf5"
+    path: "dataset/preprocess/statistic/faceon.hdf5"
     values:
       - name: velocity
         stats: ['mean','std']
@@ -23,6 +19,8 @@ model:
   epochs: 500
   alpha: 0.8
   beta: 0.2
+  resume_checkpoint: "/home/dp332/dp332/dc-su2/results/pretrained.pth"
+  # resume_checkpoint: null
 
 optimizer:
   type: "adam"
