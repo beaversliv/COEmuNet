@@ -3,7 +3,7 @@ import torch.distributed as dist
 from torch.autograd import Variable
 
 from utils.loss     import calculate_ssim_batch,MaxRel
-from utils.utils    import Logging
+from utils.utils    import Logging,load_statistics
 from tqdm           import tqdm
 import numpy as np
 import h5py  as h5
@@ -15,17 +15,9 @@ import time
 import logging
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-def load_statistics(statistics_path,statistics_values):
-        statistics = {}
-        with h5.File(statistics_path, 'r') as f:
-            for value in statistics_values:
-                feature = value['name']
-                stats_to_read = value['stats']
-                statistics[feature] = {stat: f[feature][stat][()] for stat in stats_to_read}
-        return statistics
 
 class Trainer:
-    def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,scheduler=None):
+    def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,logger,scheduler=None):
         print("Initializing Trainer...")
         start_time = time.time()
         self.model = model
@@ -36,7 +28,6 @@ class Trainer:
         self.test_dataloader  = test_dataloader
         self.config = config
         self.device = device
-        logger = Logging(config['output']['save_path'], config['output']['log_file'])
         self.logger = logger
         self.best_loss = float('inf')  # Initialize best loss
         self.patience_counter = 0
@@ -75,10 +66,7 @@ class Trainer:
         epoch_loss = total_loss / len(self.train_dataloader)  # divide number of batches
         epoch_soble = total_soble / len(self.train_dataloader)
         epoch_mse = total_mse / len(self.train_dataloader)
-        P = torch.cat(P, dim=0)
-        T = torch.cat(T,dim=0)
-
-        return epoch_loss,epoch_soble,epoch_mse,P,T
+        return epoch_loss,epoch_soble,epoch_mse
     
     def test(self):
         self.model.eval()
@@ -113,38 +101,30 @@ class Trainer:
             
             val_p,val_t,val_loss, val_feature,val_mse = self.test()
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            self.log_metrics(epoch, train_loss, train_feature,train_mse,tr_p,tr_t, 
-                                    val_loss, val_feature,val_mse,val_p, val_t)
+            original_targets = self.postProcessing(val_t)
+            original_preds = self.postProcessing(val_p)
+
+            relative_loss = MaxRel(original_targets, original_preds)
+            avg_ssim = calculate_ssim_batch(val_t, val_p) # a tensor(list)
+
+
+            self.log_metrics(epoch, train_loss, train_feature,train_mse, 
+                                    val_loss, val_feature,val_mse,relative_loss,avg_ssim)
             if self.scheduler:
                 self.scheduler.step()
             # if patience_counter >= self.config['patience']:
             #     print("Early stopping triggered")
             #     break
         
-    def log_metrics(self, epoch, train_loss, train_feature,train_mse,tr_p,tr_t,val_loss, val_feature,val_mse,val_p, val_t):
-        tr_p = tr_p.cpu().numpy()
-        tr_t = tr_t.cpu().numpy()
-        val_p = val_p.cpu().numpy()
-        val_t = val_t.cpu().numpy()
-
-        original_trt,original_trp = self.postProcessing(tr_t,tr_p)
-        original_vlt,original_vlp = self.postProcessing(val_t,val_p) 
-
-        train_maxrel = MaxRel(original_trt,original_trp)
-        tr_ssim = calculate_ssim_batch(tr_p, tr_t)
-        vl_maxrel = MaxRel(original_vlt,original_vlp)
-        vl_ssim = calculate_ssim_batch(val_p, val_t)
-
+    def log_metrics(self, epoch, train_loss, train_feature,train_mse,val_loss, val_feature,val_mse,vl_maxrel,vl_ssim):
         self.logger.info(f'epoch:{epoch}, train_loss:{train_loss.cpu().item()}, '
                  f'train_feature:{train_feature.cpu().item()}, '
                  f'train_mse:{train_mse.cpu().item()}, '
-                 f'train_maxrel:{train_maxrel}, '
-                 f'train_ssim:{tr_ssim}, '
                  f'val_loss:{val_loss.cpu().item()}, '
                  f'val_feature:{val_feature.cpu().item()}, '
                  f'val_mse:{val_mse.cpu().item()}, '
-                 f'val_maxrel:{vl_maxrel}, '
-                 f'val_ssim:{vl_ssim}')
+                 f'val_maxrel:{vl_maxrel.cpu().item()}, '
+                 f'val_ssim:{vl_ssim.cpu()}')
         model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
         torch.save(self.model.state_dict(), model_path)
         # if vl_maxrel < self.best_loss:
@@ -193,7 +173,7 @@ class Trainer:
 
  ### train step ###       
 class ddpTrainer:
-    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,local_rank,world_size,scheduler=None):
+    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,local_rank,world_size,logger,scheduler=None):
         print("Initializing Trainer...")
         start_time = time.time()
         self.ddp_model        = ddp_model
@@ -208,7 +188,7 @@ class ddpTrainer:
         self.optimizer        = optimizer
         self.scheduler        = scheduler
         self.loss_object      = loss_object
-        self.logger           = Logging(config['output']['save_path'], config['output']['log_file'])
+        self.logger           = logger
 
         self.best_loss = float('inf')
         self.patience_counter = 0
@@ -278,24 +258,38 @@ class ddpTrainer:
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             # self.logger.info(f'epochs {epoch+1}')
             epoch_loss,epoch_soble,epoch_mse = self.train()
-            pred, target, val_loss,val_feature,val_mse = self.test() #todo 
-       
+            preds, targets, val_loss,val_feature,val_mse = self.test() #todo 
+ 
             torch.cuda.empty_cache()  # Clear cache after training            
-            # Aggregate losses
+            # Aggregate test losses
             dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
             val_epoch_loss = val_loss/self.world_size
 
             dist.all_reduce(val_feature, op=torch.distributed.ReduceOp.SUM)
             val_epoch_soble = val_feature/self.world_size
+
             dist.all_reduce(val_mse, op=torch.distributed.ReduceOp.SUM)
             val_epoch_mse = val_mse/self.world_size
+
+            original_targets = self.postProcessing(targets)
+            original_preds = self.postProcessing(preds)
+
+            relative_loss = MaxRel(original_targets, original_preds)
+            # relative_loss_tensor = torch.tensor(relative_loss, device=self.local_rank)
+            dist.all_reduce(relative_loss, op=torch.distributed.ReduceOp.SUM)
+            val_maxrel = relative_loss/self.world_size # a tensor
+
+            avg_ssim = calculate_ssim_batch(targets.cpu().numpy(), preds.cpu().numpy())
+            ssim_tensor = torch.tensor(avg_ssim, device=self.local_rank) # a tensor ([ssims])
+            dist.all_reduce(ssim_tensor, op=torch.distributed.ReduceOp.SUM)
+            val_ssim = ssim_tensor/self.world_size # a tensor list
            
             # self.logger.info(f'{self.rank} finish gartering')
             # Update history on master process
             if torch.distributed.get_rank() == 0:
     
                 # self.logger.info('test start')
-                self.log_metrics(epoch, epoch_loss, epoch_soble, epoch_mse, val_epoch_loss, val_epoch_soble,val_epoch_mse, pred, target)
+                self.log_metrics(epoch, epoch_loss, epoch_soble, epoch_mse, val_epoch_loss, val_epoch_soble,val_epoch_mse,val_maxrel,val_ssim)
             if self.scheduler:
                 self.scheduler.step()
             #     if stop_training:
@@ -306,44 +300,43 @@ class ddpTrainer:
             # if stop_signal[0].item() == 1:
             #     break
 
-    def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_epoch_soble, aggregated_epoch_mse, aggregated_val_loss, val_feature,val_mse, all_preds, all_targets):
+    def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_epoch_soble, aggregated_epoch_mse, aggregated_val_loss, val_feature,val_mse, val_maxrel,val_ssim):
        
         # Ensure targets and predictions have the same length
-        assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
-        all_targets = all_targets.cpu().numpy()
-        all_preds   = all_preds.cpu().numpy()
-        original_target = self.postProcessing(all_targets)
-        original_pred = self.postProcessing(all_preds)
-        relative_loss = MaxRel(original_target, original_pred)
+        # assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
+        # all_targets = all_targets.cpu().numpy()
+        # all_preds   = all_preds.cpu().numpy()
+        # original_target = self.postProcessing(all_targets)
+        # original_pred = self.postProcessing(all_preds)
+        # relative_loss = MaxRel(original_target, original_pred)
         
-        avg_ssim = calculate_ssim_batch(all_targets, all_preds)
+        # avg_ssim = calculate_ssim_batch(all_targets, all_preds)
         self.logger.info(f'epoch:{epoch}, train_loss:{aggregated_epoch_loss.cpu().item()},'
                             f'train_feature:{aggregated_epoch_soble.cpu().item()},'
                             f'train_mse:{aggregated_epoch_mse.cpu().item()},'
                             f'val_loss:{aggregated_val_loss.cpu().item()},'
                             f'val_feature:{val_feature.cpu().item()},'
                             f'val_mse:{val_mse.cpu().item()},'
-                            f'val_maxrel:{relative_loss},'
-                            f'val_ssim:{avg_ssim}\n')
-        
-        model_path = os.path.join(self.config['output']['save_path'], {self.config['output']['model_file']})
+                            f'val_maxrel:{val_maxrel.cpu().item()},'
+                            f'val_ssim:{val_ssim.cpu().tolist()}\n')
+        model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
         torch.save( {
             'epoch': epoch,
             'model_state_dict':self.ddp_model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'current_maxrel':relative_loss,
+            'current_maxrel':val_ssim.cpu().tolist(),
         },model_path)
 
-        self.logger.info(f"Model saved at epoch {epoch}")
-        if relative_loss < self.best_loss:
-            self.best_loss = relative_loss
+        # self.logger.info(f"Model saved at epoch {epoch}")
+        if val_maxrel.cpu().item() < self.best_loss:
+            self.best_loss = val_maxrel.cpu().item()
             # self.patience_counter = 0
             model_path = os.path.join(self.config['output']['save_path'], 'best_sofar_'+self.config['output']['model_file'])
             torch.save( {
                 'epoch': epoch,
                 'model_state_dict':self.ddp_model.state_dict(),
                 'optimizer_state_dict': self.optimizer.state_dict(),
-                'current_maxrel':relative_loss,
+                'current_maxrel':val_ssim.cpu().tolist(),
             },model_path)
             self.logger.info(f"Model saved at epoch {epoch}")
         # else:
@@ -412,5 +405,5 @@ class ddpTrainer:
             min_   = self.dataset_stats['intensity']['min']
             median = self.dataset_stats['intensity']['median']
             y = y*median + min_
-        y = np.exp(y)
+        y = torch.exp(y)
         return y
