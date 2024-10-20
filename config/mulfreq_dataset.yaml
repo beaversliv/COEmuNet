@@ -20,9 +20,8 @@ model:
   epochs: 500
   alpha: 0.8
   beta: 0.2
-  pretrained_encoder: "/home/dp332/dp332/dc-su2/results/pretrained.pth"
-  resume_checkpoint: "/home/dp332/dp332/dc-su2/results/mulfreq/batch_512_001_2/batch_512_001_2.pth"
-  # pretrained_encoder: null
+  # pretrained_encoder: "/home/dp332/dp332/dc-su2/results/pretrained.pth"
+  resume_checkpoint: "/home/dp332/dp332/dc-su2/results/pretrained.pth"
 
 optimizer:
   type: "adam"
@@ -34,9 +33,9 @@ optimizer:
     amsgrad: false
 
 output:
-  save_path: "../results/mulfreq"
+  save_path: "results/mulfreq"
   log_file: "log_file.txt"
   model_file: "model.pth"
   pkl_file: "history.pkl"
   history_img: 'history.png'
-  img_dir: "../results/mulfreq/img"
+  img_dir: "results/mulfreq/img"

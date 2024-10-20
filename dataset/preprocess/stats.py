@@ -82,7 +82,7 @@ def save_meta_hdf5(meta, filename='meta.h5'):
             for subkey, value in subdict.items():
                 grp.create_dataset(subkey, data=value)
 
-def stats_main(dataset_name,logger,non_outlier_file_path):
+def stats_main(dataset_name,logger,non_outlier_file_path,stats_file):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -223,5 +223,5 @@ def stats_main(dataset_name,logger,non_outlier_file_path):
                 'intensity': {'min': global_y_min, 'median': global_y_median}
             }
         logger.info(global_stats)
-        save_meta_hdf5(global_stats,f'data/preprocess/statistic/{dataset_name}.hdf5')
-        logger.info(f'saved new_{dataset_name} stats')
+        save_meta_hdf5(global_stats,stats_file)
+        logger.info(f'saved {stats_file} stats')

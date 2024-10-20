@@ -3,7 +3,7 @@ import torch.distributed as dist
 from torch.autograd import Variable
 
 from utils.loss     import calculate_ssim_batch,MaxRel
-from utils.utils    import Logging,load_statistics
+from utils.utils    import load_statistics
 from tqdm           import tqdm
 import numpy as np
 import h5py  as h5
@@ -15,7 +15,7 @@ import time
 import logging
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-
+    
 class Trainer:
     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,logger,scheduler=None):
         print("Initializing Trainer...")
@@ -225,14 +225,25 @@ class ddpTrainer:
         epoch_mse = total_mse / len(self.train_dataloader)
         return epoch_loss,epoch_soble,epoch_mse
 
-    
+    def record_prediction(self, pred, targets):
+        original_target = self.postProcessing(targets)
+        original_pred = self.postProcessing(pred)
+        relative_loss = MaxRel(original_target, original_pred)
+
+        # self.max_rel.append(relative_loss)
+        ssim_per_batch = calculate_ssim_batch(targets, pred)
+        # self.ssim.append(ssim_per_batch)
+
+        return relative_loss, ssim_per_batch
+
     def test(self):
         self.ddp_model.eval()
-        P = []
-        T = []
+      
         L = []
         SL = []
         MSE = []
+        relative_loss_epoch = []
+        ssim_epoch = []
         with torch.no_grad():
             for bidx, samples in enumerate(self.test_dataloader):
                 data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank)
@@ -240,56 +251,101 @@ class ddpTrainer:
                 soble_loss,mse = self.loss_object(target, pred)
 
                 loss = soble_loss + mse
-                P.append(pred.detach())
-                T.append(target.detach())
+                # (scalar), [7 elements]
+                relative_loss, ssim_per_batch = self.record_prediction(pred, target)
+                # if relative_loss_epoch is None:
+                #     relative_loss_epoch = relative_loss
+                # else:
+                #     relative_loss_epoch = torch.concat([relative_loss_epoch, relative_loss], dim=0)
+                relative_loss_epoch.append(relative_loss)
+                # self.logger.info(f'index {bidx} has maxrel: {relative_loss.shape}')
+                ssim_epoch.append(ssim_per_batch)
+                # self.logger.info(f'index {bidx} has ssim: {ssim_per_batch}')
+
                 L.append(loss.detach())
                 SL.append(soble_loss.detach())
                 MSE.append(mse.detach())
+
                 if bidx % 50 == 0:
                     self.logger.info(f'Test batch [{bidx}/{len(self.test_dataloader)}]: freq loss: {soble_loss:.4f}, mse:{mse:.4f}, total loss:{loss:.4f}',gpu_rank=self.rank)
-        P = torch.cat(P, dim=0)
-        T = torch.cat(T,dim=0)
+        # maxrel per samples in certain rank
+        maxrel = torch.stack(relative_loss_epoch)
+        # ssim in certain rank
+        avg_ssim   = torch.stack(ssim_epoch,dim=0)
+
         L = torch.stack(L)
+        val_loss = torch.mean(L)
         SL = torch.stack(SL)
+        val_feature = torch.mean(SL)
         MSE = torch.stack(MSE)
-        return P,T,torch.mean(L),torch.mean(SL),torch.mean(MSE)
+        val_mse = torch.mean(MSE)
+
+        # Aggregate test losses
+        dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
+        val_epoch_loss = val_loss/self.world_size
+
+        dist.all_reduce(val_feature, op=torch.distributed.ReduceOp.SUM)
+        val_epoch_soble = val_feature/self.world_size
+
+        dist.all_reduce(val_mse, op=torch.distributed.ReduceOp.SUM)
+        val_epoch_mse = val_mse/self.world_size
+
+        all_relative_loss = [torch.zeros_like(maxrel) for _ in range(self.world_size)]
+        dist.all_gather(all_relative_loss, maxrel)
+
+        if dist.get_rank() == 0:
+            # Concatenate along the first dimension to get a single tensor with data from all ranks
+            all_relative_loss = torch.concat(all_relative_loss, dim=0)  # Shape: (total_samples_across_all_ranks, 1)
+            self.logger.info('total_samples_across_all_ranks',all_relative_loss.shape)
+            # Calculate the median
+            val_maxrel = torch.median(all_relative_loss)
+        else:
+            val_maxrel = None 
+
+        dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
+        val_ssim = avg_ssim / dist.get_world_size()
+        val_ssim = val_ssim.mean(dim=0) 
+
+        return val_epoch_loss,val_epoch_soble,val_epoch_mse, val_maxrel,val_ssim
     def run(self):
         stop_signal = torch.tensor([0], device=self.local_rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
-            # self.logger.info(f'epochs {epoch+1}')
+            # self.logger.info(f'epoch {epoch} started.')
             epoch_loss,epoch_soble,epoch_mse = self.train()
-            preds, targets, val_loss,val_feature,val_mse = self.test() #todo 
- 
+            val_epoch_loss,val_epoch_soble,val_epoch_mse, val_maxrel,val_ssim = self.test() #todo 
+            # self.logger.info(f'epoch {epoch} completed')
             torch.cuda.empty_cache()  # Clear cache after training            
             # Aggregate test losses
-            dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
-            val_epoch_loss = val_loss/self.world_size
+            # dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
+            # val_epoch_loss = val_loss/self.world_size
 
-            dist.all_reduce(val_feature, op=torch.distributed.ReduceOp.SUM)
-            val_epoch_soble = val_feature/self.world_size
+            # dist.all_reduce(val_feature, op=torch.distributed.ReduceOp.SUM)
+            # val_epoch_soble = val_feature/self.world_size
 
-            dist.all_reduce(val_mse, op=torch.distributed.ReduceOp.SUM)
-            val_epoch_mse = val_mse/self.world_size
+            # dist.all_reduce(val_mse, op=torch.distributed.ReduceOp.SUM)
+            # val_epoch_mse = val_mse/self.world_size
 
-            original_targets = self.postProcessing(targets)
-            original_preds = self.postProcessing(preds)
+            # all_relative_loss = [torch.zeros_like(maxrel) for _ in range(self.world_size)]
+            # dist.all_gather(all_relative_loss, maxrel)
 
-            relative_loss = MaxRel(original_targets, original_preds)
-            # relative_loss_tensor = torch.tensor(relative_loss, device=self.local_rank)
-            dist.all_reduce(relative_loss, op=torch.distributed.ReduceOp.SUM)
-            val_maxrel = relative_loss/self.world_size # a tensor
+            # if dist.get_rank() == 0:
+            #     # Concatenate along the first dimension to get a single tensor with data from all ranks
+            #     all_relative_loss = torch.concat(all_relative_loss, dim=0)  # Shape: (total_samples_across_all_ranks, 1)
+            #     self.logger.info('total_samples_across_all_ranks',all_relative_loss.shape)
+            #     # Calculate the median
+            #     val_maxrel = torch.median(all_relative_loss)
+            # else:
+            #     val_maxrel = None 
 
-            avg_ssim = calculate_ssim_batch(targets.cpu().numpy(), preds.cpu().numpy())
-            ssim_tensor = torch.tensor(avg_ssim, device=self.local_rank) # a tensor ([ssims])
-            dist.all_reduce(ssim_tensor, op=torch.distributed.ReduceOp.SUM)
-            val_ssim = ssim_tensor/self.world_size # a tensor list
-           
-            # self.logger.info(f'{self.rank} finish gartering')
+            # dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
+            # val_ssim = avg_ssim / dist.get_world_size()
+            # val_ssim = val_ssim.mean(dim=0) 
+
             # Update history on master process
             if torch.distributed.get_rank() == 0:
     
-                # self.logger.info('test start')
-                self.log_metrics(epoch, epoch_loss, epoch_soble, epoch_mse, val_epoch_loss, val_epoch_soble,val_epoch_mse,val_maxrel,val_ssim)
+                # self.logger.info('test start') 
+                self.log_metrics(epoch, epoch_loss, epoch_soble, epoch_mse, val_epoch_loss, val_epoch_soble,val_epoch_mse, val_maxrel, val_ssim)
             if self.scheduler:
                 self.scheduler.step()
             #     if stop_training:
@@ -370,29 +426,13 @@ class ddpTrainer:
             model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
             self.ddp_model.load_state_dict(torch.load(model_path, map_location=map_location))
 
-            all_preds, all_targets, test_loss,test_feature,test_mse = self.test()
-            all_targets = all_targets.cpu().numpy()
-            all_preds   = all_preds.cpu().numpy()
+            val_loss,val_feature,val_mse, val_maxrel,val_ssim = self.test()
             
-            assert len(all_preds) == len(all_preds), "Targets and predictions must have the same length"
-            # Save the training history
-            if save_hist:
-                history_path = os.path.join(self.config['output']['save_path'],self.config['output']['pkl_file'])
-                with open(history_path, "wb") as pickle_file:
-                    pickle.dump({
-                        "predictions": all_preds[:20],
-                        "targets": all_targets[:20]
-                    }, pickle_file)
-                print(f'saved {history_path}!\n')
-            self.logger.info('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
+            self.logger.info('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], val_loss.cpu().item()))
             self.logger.info('best loss', self.best_loss)
-            original_target = self.postProcessing(all_targets)
-            original_pred = self.postProcessing(all_preds)
-            self.logger.info(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
-
-            avg_ssim = calculate_ssim_batch(all_targets,all_preds)
-            for freq in range(len(avg_ssim)):
-                self.logger.info(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
+            self.logger.info(f'relative loss {val_maxrel:.5f}%')
+            for freq in range(len(val_ssim)):
+                self.logger.info(f'frequency {freq + 1} has ssim {val_ssim:.4f}')
 
             # # Plot and save images
             # img_plt(all_targets, all_preds, path=path)

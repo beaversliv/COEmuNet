@@ -13,12 +13,11 @@ from utils.ResNet3DModel  import Net,Net3D
 from utils.utils           import LoadCheckPoint,Logging,setup,cleanup
 
 import numpy as np
-import datetime
 import os
 
 import time
 import socket    
-
+import yaml
 def main(config): 
     ## Initialize any necessary components for DDP
     world_size    = int(os.environ.get("SLURM_NTASKS"))
@@ -26,20 +25,22 @@ def main(config):
     gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE",torch.cuda.device_count()))
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
     logger        = Logging(config['output']['save_path'], config['output']['log_file'])
-    
-    logger.info(config)
-    logger.info(f'number of gpus: {torch.cuda.device_count()}')
+
+    setup(rank, world_size)
+    local_rank = rank - gpus_per_node * (rank // gpus_per_node)
+
+    if rank == 0:
+        logger.info(yaml.dump(config, default_flow_style=False, sort_keys=False))
+        logger.info(f'number of gpus: {torch.cuda.device_count()}')
+
     if gpus_per_node == 0:
         logger.info("No GPUs available on this node.")
     else:
         logger.info(f"GPUs available: {gpus_per_node}")
+
     logger.info(f'rank {rank} num workers:{num_workers}')
     logger.info(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are {gpus_per_node} allocated GPUs per node.")
-
-    setup(rank, world_size)
-    local_rank = rank - gpus_per_node * (rank // gpus_per_node)
-    logger.info(f'Rank {rank} of local rank {local_rank}')
-    logger.info('finish setup')
+    logger.info(f'Rank {rank} of local rank {local_rank} finishes setup')
     
     np.random.seed(config['model']['seed'])
     torch.manual_seed(config['model']['seed'])
@@ -67,7 +68,7 @@ def main(config):
 
     file_path = config['model'].get('resume_checkpoint',None)
 
-    checkpoint_loading = LoadCheckPoint(learning_model=model,file_path=file_path,stage=config['model']['stage'],logger=logger,local_rank=local_rank,ddp_on=True)
+    checkpoint_loading = LoadCheckPoint(learning_model=model,file_path=file_path,stage=config['model']['stage'],logger=logger,local_rank=f'cuda:{local_rank}',ddp_on=True)
     checkpoint_loading.load_checkpoint()
 
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)

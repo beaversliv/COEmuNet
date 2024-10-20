@@ -1,16 +1,12 @@
 import h5py as h5
 import numpy as np
-import os
-import sys
 import warnings
 warnings.filterwarnings('error', category=RuntimeWarning)
 # torch related
 import torch
-from torch.utils.data import Dataset,DataLoader
-import zipfile
-import io
-from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Manager
+from torch.utils.data import Dataset
+from utils.utils      import load_txt
+
 import logging
 import time
 
@@ -258,20 +254,19 @@ class AsyncChunkDataset(Dataset):
         raise IndexError("Index out of range")
 
 class ChunkLoadingDataset(Dataset):
-    def __init__(self, file_list, mini_batch_size=128,dataset_name='rotation'):
+    def __init__(self, file_list_path, mini_batch_size=128):
         """
         Args:
             file_list (list): List of file paths where data is stored.
             mini_batch_size (int): The size of the mini-batches for each loaded chunk.
             transform (callable, optional): Optional transform to be applied on a sample.
         """
-        self.file_list = file_list  # List of chunked file paths (e.g., ['batch_0.hdf5', 'batch_1.hdf5', ...])
+        self.file_list = load_txt(file_list_path)# List of chunked file paths (e.g., ['batch_0.hdf5', 'batch_1.hdf5', ...])
         self.mini_batch_size = mini_batch_size
-        self.dataset_name = dataset_name
         # Store the number of samples in each file
 
         self.file_lengths = []
-        for file_path in file_list:
+        for file_path in self.file_list:
             with h5.File(file_path, 'r') as f:
                 self.file_lengths.append(f['input'].shape[0])
 

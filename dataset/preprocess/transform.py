@@ -54,7 +54,7 @@ class PreProcessingTransform:
             yt = np.transpose(yt,(2,0,1))
         return xt,yt
 
-def find_path(dataset_name, non_outlier_file_path,logger):
+def find_path(dataset_name, non_outlier_file_path,clean_file_path,logger):
     try:
         with open(non_outlier_file_path, 'r') as f:
                 model_files = json.load(f)
@@ -67,13 +67,13 @@ def find_path(dataset_name, non_outlier_file_path,logger):
         listb[-1] = 'clean_'+ listb[-1]
         clean_file = ('/').join(listb)
         clean_files.append(clean_file)
-    with open(f"aluxinary_files/{dataset_name}_clean_files.json", 'w') as f:
+    with open(clean_file_path, 'w') as f:
             json.dump(clean_files, f)
     return model_files,clean_files
 
 
-def process_files(model_files, clean_files,dataset_config):
-    statistics_path = dataset_config['dataset']['statistics']['path'] 
+def process_files(model_files, clean_files,dataset_config,stats_file):
+    statistics_path = stats_file
     statistics_values = dataset_config['dataset']['statistics']['values']
     dataset_name = dataset_config['dataset']['name']
     transform = PreProcessingTransform(statistics_path=statistics_path,
@@ -97,9 +97,9 @@ def process_files(model_files, clean_files,dataset_config):
             h5f.create_dataset('input', data=xt)
             h5f.create_dataset('output', data=yt)
         # os.remove(model_file)
-def transform_main(dataset_name, logger):
+def transform_main(dataset_name, non_outlier_file_path,clean_file_path,stats_file,logger):
     from utils import load_yaml
-    dataset_config = load_yaml(f'data/preprocess/config/{dataset_name}.yaml')
+    dataset_config = load_yaml(f'data/preprocess/config/{dataset_name}_dataset.yaml')
     dataset_name = dataset_config['dataset']['name']
     # Initialize MPI
     comm = MPI.COMM_WORLD
@@ -107,8 +107,7 @@ def transform_main(dataset_name, logger):
     size = comm.Get_size()
     # Find all file paths
     if rank == 0:
-        non_outlier_file_path = f'aluxinary_files/{dataset_name}_non_outliers.json'
-        model_files, clean_files = find_path(dataset_name, non_outlier_file_path,logger)
+        model_files, clean_files = find_path(dataset_name, non_outlier_file_path,clean_file_path,logger)
         # model_files,clean_files = model_files[:5],clean_files[:5]
     else:
         model_files,clean_files = None,None
@@ -133,6 +132,6 @@ def transform_main(dataset_name, logger):
             logger.info(f"round {round_idx} Process {rank} received no data.")
             continue
 
-        process_files(model_files, clean_files,dataset_config)
+        process_files(local_model_files, local_clean_files,dataset_config,stats_file)
     # Finalize MPI
     comm.Barrier()

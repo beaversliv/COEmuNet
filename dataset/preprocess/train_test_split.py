@@ -6,10 +6,9 @@ import time
 from mpi4py import MPI
 import sys
 import json
-import logging
 import argparse
 from collections import OrderedDict
-from utils import check_file
+from utils import check_file,Logging
 
 def timing_decorator(func):
     def wrapper(*args, **kwargs):
@@ -24,8 +23,7 @@ def batch_files(file_list, batch_size):
     for i in range(0, len(file_list), batch_size):
         yield file_list[i:i + batch_size]
 
-def save_batch_to_hdf5(rank, batch, filename):
-    logger.info(f'rank {rank} starts to save {filename}')
+def save_batch_to_hdf5(rank, batch, filename,logger):
     with h5.File(filename,'w') as h5f:
         X = []
         Y = []
@@ -41,16 +39,9 @@ def save_batch_to_hdf5(rank, batch, filename):
             # os.remove(file)
         h5f['input'] = chunk_x
         h5f['output'] = chunk_y
-def parse_args():
-    parser = argparse.ArgumentParser(description="Select dataset and override config options")
-    parser.add_argument('--dataset', choices=['random', 'dummy','mulfreq', 'faceon'], required=True,
-                        help="Specify the dataset to use: 'random', 'mulfreq', or 'faceon'")
-    return parser.parse_args()
 
 @timing_decorator
-def train_test_split_main(clean_file_path,logger):
-    args = parse_args()
-    dataset_name = args.dataset
+def train_test_split_main(dataset_name,clean_file_path,logger):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -58,7 +49,7 @@ def train_test_split_main(clean_file_path,logger):
     if rank == 0:
         try:
             with open(clean_file_path, 'r') as f:
-                    file_paths = json.load(f)
+                file_paths = json.load(f)
         except Exception as e:
             print(f"Warning: Failed to open file {clean_file_path}. Please run outlier.py\n {e}")
             comm.Abort()  # This will terminate all processes
@@ -101,14 +92,12 @@ def train_test_split_main(clean_file_path,logger):
                 folder = 'mul_freq'
             else:
                 folder = 'sgl_freq'
-            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{folder}/grid64/rotation3/train_{i}.hdf5"
+            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{folder}/grid64/Rotation/train_{i}.hdf5"
         else:
             if dataset_name == 'mulfreq':
                 folder = 'mul_freq'
             else:
                 folder = 'sgl_freq'
             test_idx = i - len(train_batches)
-            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{folder}/grid64/rotation3/test_{test_idx}.hdf5"
-        logger.info(f'saved {filename}')
-        # save_batch_to_hdf5(rank, batch, filename)
-
+            filename = f"/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/{folder}/grid64/Rotation/test_{test_idx}.hdf5"
+        save_batch_to_hdf5(rank, batch, filename,logger)

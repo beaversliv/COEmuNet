@@ -10,19 +10,13 @@ from utils.loss           import FreqMse
 from utils.trainclass     import ddpTrainer
 from utils.config         import parse_args,load_config,merge_config
 from utils.ResNet3DModel  import Net,Net3D
-from utils.loadModel      import load_state_dict
-from utils.utils           import HistoryShow
+from utils.utils           import HistoryShow,Logging,load_checkpoint
 
 import h5py as h5
 import numpy as np
-import datetime
+
 import os
-import sys
-import json
 import time
-import pickle
-import argparse
-from collections import OrderedDict
 import socket   
 def setup(rank, world_size):
     "Sets up the process group and configuration for PyTorch Distributed Data Parallelism"
@@ -51,28 +45,26 @@ def setup(rank, world_size):
 def cleanup():
     "Cleans up the distributed environment"
     dist.destroy_process_group()
-def main(): 
+def main(config): 
     # Initialize any necessary components for DDP
     world_size    = int(os.environ.get("SLURM_NTASKS"))
     rank          = int(os.environ.get("SLURM_PROCID"))
     gpus_per_node = int(os.environ.get("SLURM_GPUS_ON_NODE"))
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
-    print(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
+    logger        = Logging(config['output']['save_path'], config['output']['log_file'])
+
+    logger.info(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are" \
           f" {gpus_per_node} allocated GPUs per node.", flush=True)
     setup(rank, world_size)
     local_rank = rank - gpus_per_node * (rank // gpus_per_node)
-    print(f'Rank {rank} of local rank {local_rank}')
-
-    args = parse_args()
-    config = load_config(args.config)
-    config = merge_config(args, config)
+    logger.info(f'Rank {rank} of local rank {local_rank}')
     
     np.random.seed(config['model']['seed'])
     torch.manual_seed(config['model']['seed'])
     torch.cuda.manual_seed_all(config['model']['seed'])
 
-    train_file_paths = [f'/home/dp332/dp332/dc-su2/dc-su2/Mulfreq/train_{i}.hdf5' for i in range(174)]
-    test_file_paths = [f'/home/dp332/dp332/dc-su2/dc-su2/Mulfreq/test_{i}.hdf5' for i in range(22)]
+    train_file_paths = [f'/home/dp332/dp332/dc-su2/dc-su2/mulfreq/train_{i}.hdf5' for i in range(174)]
+    test_file_paths = [f'/home/dp332/dp332/dc-su2/dc-su2/mulfreq/test_{i}.hdf5' for i in range(22)]
     
     train_dataset = ChunkLoadingDataset(train_file_paths,config['dataset']['batch_size'],config['dataset']['name'])
     test_dataset = ChunkLoadingDataset(test_file_paths,config['dataset']['batch_size'],config['dataset']['name'])
@@ -84,15 +76,15 @@ def main():
     test_dataloader = MultiEpochsDataLoader(test_dataset, 1, sampler=sampler_test,num_workers=num_workers, shuffle=False)
     torch.cuda.set_device(local_rank)
 
-    model = Net3D(freq=7)
-    model = model.to(local_rank)
+    model = Net3D(freq=7).to(local_rank)
+    
     map_location = {'cuda:%d' % 0: 'cuda:%d' % local_rank}
-    # model_dic = '/home/dp332/dp332/dc-su2/results/pretrained.pth'
-    # checkpoint = torch.load(model_dic,map_location=map_location)
-    # model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
-    checkpoint='/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq.pth'
-    state_dict = torch.load(checkpoint,map_location=map_location)
-    load_state_dict(model,state_dict)
+    model_dic = '/home/dp332/dp332/dc-su2/results/pretrained.pth'
+    checkpoint = torch.load(model_dic,map_location=map_location)
+    model.encoder_state_dict = {k: v for k, v in checkpoint.items() if k.startswith('encoder')}
+    # checkpoint_path = config['model']['checkpoint_path']
+    # start_epoch, best_loss = load_checkpoint(model, optimizer=optimizer, checkpoint_path=checkpoint_path,local_rank=local_rank)
+    # logger.info(f"Resuming from checkpoint. Start Epoch: {start_epoch}, Best Loss: {best_loss}")
     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
 
     # Define the optimizer for the DDP model
@@ -101,30 +93,33 @@ def main():
     scheduler = StepLR(optimizer,step_size=100,gamma=0.1)
     loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,scheduler=None)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler=None)
     
     # Run the training and testing
     dist.barrier()
     start = time.time()
     if rank == 0:
-        print(f'Rank {rank} starts training\n')
+        logger.info(f'Rank {rank} starts training\n')
     trainer.run()
     end = time.time()
     # Synchronize all processes and stop the timer
     dist.barrier()
     if rank == 0:
-        print(f'running time: {(end - start) / 3600:.2f} hours')
-    trainer.save(True)
-    if rank == 0:
-        log_file = config['output']['logfile']
-        pkl_file = config['output']['results']
-        save_path = config['ouput']['history_img']
-        history_plot = HistoryShow(log_file,pkl_file)
-        history_plot.history_show(save_path)
-        history_plot.mulfreq_impl(img_dir='/home/dp332/dp332/dc-su2/results/mulfreq/img/')
+        logger.info(f'running time: {(end - start) / 3600:.2f} hours')
+    # trainer.save(True)
+    # if rank == 0:
+    #     log_file = config['output']['logfile']
+    #     pkl_file = config['output']['results']
+    #     save_path = config['ouput']['history_img']
+    #     history_plot = HistoryShow(log_file,pkl_file)
+    #     history_plot.history_show(save_path)
+    #     history_plot.mulfreq_impl(img_dir='/home/dp332/dp332/dc-su2/results/mulfreq/img/')
     
     # Clean up
     cleanup()
     print(f'Rank {rank} clean up process')
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+    config = load_config(args.config)
+    config = merge_config(args, config)
+    main(config)

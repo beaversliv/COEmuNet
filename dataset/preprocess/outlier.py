@@ -118,7 +118,7 @@ def outlier_detection(rotation_file,dataset_name):
     y = np.log(y)
     return np.min(y) <= -50
 
-def outlier_main(dataset_name,logger,non_outlier_file_path):
+def outlier_main(dataset_name,num_rotations,logger,non_outlier_file_path):
     # Initialize MPI
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -129,9 +129,9 @@ def outlier_main(dataset_name,logger,non_outlier_file_path):
     else:
         gen_path = 'physical_forward/sgl_freq/grid64'
 
-    rotation_files_find = PathFind(num_rotations=1,gen_path=gen_path)
+    rotation_files_find = PathFind(num_rotations=num_rotations,gen_path=gen_path)
     model_files = rotation_files_find.file_paths_gen()
-    model_files = model_files[:10]
+    # model_files = model_files[:10]
 
     # Split the file list among the available processes
     files_per_proc = len(model_files) // size

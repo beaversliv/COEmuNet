@@ -16,11 +16,12 @@ def parse_args():
     parser.add_argument('--beta', type=float, help='weight for MSE')
     parser.add_argument('--weight_decay', type=float, help='regulerizaton')
     
-    parser.add_argument('--save_path', type=str)
-    parser.add_argument('--logfile', type=str,help='training history')
-    parser.add_argument('--model_name', type=str,help='saved model name')
-    parser.add_argument('--results', type=str,help='saved target and pred')
-    parser.add_argument('--history_img', type=str,help='train test value vs epoch')
+    parser.add_argument('--save_path', type=str,help='path for history.png, history.pkl and model.pth')
+    parser.add_argument('--log_file', type=str,help='training history')
+    parser.add_argument('--model_file', type=str,help='saved model name')
+    parser.add_argument('--pkl_file', type=str,help='saved target and pred in pkl')
+    parser.add_argument('--history_img', type=str,help='train test value vs epoch, history.png')
+    parser.add_argument('--img_dir', type=str,help='save target img vs pred img in which dir')
     
     args = parser.parse_args()
     return args
@@ -46,14 +47,17 @@ def merge_config(args, config):
         config['optimizer']['weight_decay'] = args.weight_decay
     if args.save_path is not None:
         config['output']['save_path'] = args.save_path
-    if args.logfile is not None:
-        config['output']['logfile'] = args.logfile
-    if args.model_name is not None:
-        config['output']['model_name'] = args.model_name
+    if args.log_file is not None:
+        config['output']['log_file'] = args.log_file
+    if args.model_file is not None:
+        config['output']['model_file'] = args.model_file
+    if args.pkl_file is not None:
+        config['output']['pkl_file'] = args.pkl_file 
     if args.history_img is not None:
         config['output']['history_img'] = args.history_img
-    if args.results is not None:
-        config['output']['results'] = args.results  
+    if args.img_dir is not None:
+        config['output']['img_dir'] = args.img_dir
+     
     if 'optimizer' in config and config['optimizer']['type'] == 'adam':
         if args.lr:
             config['optimizer']['params']['lr'] = args.lr

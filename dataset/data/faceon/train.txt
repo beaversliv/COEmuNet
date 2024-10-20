@@ -1,0 +1,1 @@
+/home/dp332/dp332/dc-su2/dc-su2/faceon/train.hdf5
