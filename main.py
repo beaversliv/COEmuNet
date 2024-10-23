@@ -31,15 +31,13 @@ def main(config):
 
     if rank == 0:
         logger.info(yaml.dump(config, default_flow_style=False, sort_keys=False))
-        logger.info(f'number of gpus: {torch.cuda.device_count()}')
 
-    if gpus_per_node == 0:
-        logger.info("No GPUs available on this node.")
-    else:
-        logger.info(f"GPUs available: {gpus_per_node}")
+        if gpus_per_node == 0:
+            logger.info("No GPUs available on this node.")
+        else:
+            logger.info(f"GPUs available: {gpus_per_node}")
 
-    logger.info(f'rank {rank} num workers:{num_workers}')
-    logger.info(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are {gpus_per_node} allocated GPUs per node.")
+    logger.info(f"Hello from rank {rank} of {world_size} on {socket.gethostname()} where there are {gpus_per_node} allocated GPUs and {num_workers} numb workers per node.")
     logger.info(f'Rank {rank} of local rank {local_rank} finishes setup')
     
     np.random.seed(config['model']['seed'])
@@ -68,64 +66,14 @@ def main(config):
 
     file_path = config['model'].get('resume_checkpoint',None)
 
-    checkpoint_loading = LoadCheckPoint(learning_model=model,file_path=file_path,stage=config['model']['stage'],logger=logger,local_rank=f'cuda:{local_rank}',ddp_on=True)
-    checkpoint_loading.load_checkpoint()
-
-    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
 
-    # if config['dataset']['name'] == 'mulfreq':
-    #     model = Net3D(7).to(local_rank)
-        
-    #     if config['model']['stage'] == 1:
-    #         pretrained_encoder_path = config['model'].get('pretrained_encoder', None)
-    #         if pretrained_encoder_path:
-    #             load_encoder_pretrained(model, pretrained_encoder_path, map_location=f'cuda:{local_rank}')
-    #         else:
-    #             logger.info("No pretrained encoder checkpoint provided. Starting from scratch.")
-            
-    #         # Start training from scratch with only the encoder loaded
-    #         start_epoch, best_loss = 0, float('inf')
-    #         logger.info(f"Start training Stage 1 (encoder-only) from epoch {start_epoch}")
+    checkpoint_loading = LoadCheckPoint(learning_model=model,optimizer=optimizer, file_path=file_path,stage=config['model']['stage'],logger=logger,local_rank=f'cuda:{local_rank}',ddp_on=True)
+    checkpoint_loading.load_checkpoint()
 
-    #     elif config['model']['stage'] == 2:
-    #         # Load the full model and optimizer at the second stage (resuming training)
-    #         full_model_checkpoint_path = config['model'].get('resume_checkpoint',None)
-    #         if full_model_checkpoint_path:
-    #             start_epoch, best_loss = load_model_checkpoint(model, full_model_checkpoint_path, map_location=f'cuda:{local_rank}')
-    #         else:
-    #             logger.info("No full model checkpoint provided. Starting from scratch.")
-    #             start_epoch, best_loss = 0, float('inf')  # Start from scratch
-                
-    #         logger.info(f"Resuming from checkpoint {full_model_checkpoint_path}. Start Epoch: {start_epoch}, Best Loss: {best_loss}")
-
-    #     ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
-
-    #     optimizer_params = config['optimizer']['params']
-    #     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    #     if config['model']['stage'] == 2 and full_model_checkpoint_path:
-    #         load_optimizer_checkpoint(optimizer, checkpoint_path=full_model_checkpoint_path, map_location=f'cuda:{local_rank}')
-
-    # else:
-    #     model = Net(64).to(local_rank)
-    #     checkpoint_path = config['model'].get('resume_checkpoint', None)
-        
-    #     if checkpoint_path:
-    #         # Load the model and optimizer states before DDP wrapping
-    #         start_epoch, best_loss = load_model_checkpoint(model, checkpoint_path=checkpoint_path, map_location=f'cuda:{local_rank}')
-    #         logger.info(f"Resuming from checkpoint {checkpoint_path}. Start Epoch: {start_epoch}, Best Loss: {best_loss}")
-    #     else:
-    #         start_epoch, best_loss = 0, float('inf')
-    #         logger.info(f"Starting training from scratch. Start Epoch: {start_epoch}, Best Loss: {best_loss}")
-
-        # ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
-
-        # optimizer_params = config['optimizer']['params']
-        # optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-        # if checkpoint_path:
-        #     load_optimizer_checkpoint(optimizer, checkpoint_path=checkpoint_path, map_location=f'cuda:{local_rank}')
-
+    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
+    
     # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
     # scheduler = CyclicLR(optimizer,base_lr=1e-3,max_lr=0.1,step_size_up=100,mode='triangular',cycle_momentum=False)
@@ -133,10 +81,6 @@ def main(config):
     loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler=None)
-    
-    # Run the training and testing
-    ### start training ###
-    # trainer.eval()
 
     start = time.time()
     if rank == 0:

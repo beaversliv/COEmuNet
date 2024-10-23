@@ -20,9 +20,6 @@ from utils.utils          import HistoryShow,check_dir,Logging,LoadCheckPoint
 import pickle
 import statistics
 import os
-save_dir = '/home/dp332/dp332/dc-su2/results/mulfreq/'
-check_dir(save_dir)
-logger = Logging(save_dir, 'evaluation.txt')
 def img_pl(img_data,path):
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     title = ['target','highest_MaxRel','lowest_MaxRel']
@@ -33,7 +30,7 @@ def img_pl(img_data,path):
         fig.colorbar(img)
         plt.savefig(path)
 
-def MaxRel_sample_distribution(original_target,original_high_pred,original_low_pred,fig_path):
+def MaxRel_sample_distribution(logger,original_target,original_high_pred,original_low_pred,fig_path):
     '''the maxrel for each sample in histogram'''
     results = {'high': [], 'low': []}
     for i in range(len(original_target)):
@@ -64,7 +61,7 @@ def MaxRel_sample_distribution(original_target,original_high_pred,original_low_p
     axes[1].set_title('Lowes model Maxrel sample distribution')
     plt.savefig(fig_path)
     
-def locate_min_max_maxrel(save_dir,log_files):
+def locate_min_max_maxrel(save_dir,logger,log_files):
 
     history_plot = HistoryShow(log_files,pkl_file=None,single=False)
     _,_,_,val_maxrel,ssim_transposed = history_plot.read_training_message()
@@ -112,7 +109,9 @@ def mulfreq_imshow(target,pred,save_path):
     plt.tight_layout(pad=0.1)
     plt.savefig(save_path)
     
-def save_pkl(model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,save_dir,scheduler=None):
+def save_pkl(model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,save_dir,logger,scheduler=None):
+
+    
     trainer = Trainer(model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,logger,scheduler=None)
     preds,targets,total_loss,freq_loss,mse = trainer.test()
     assert len(targets) == len(preds), "Targets and predictions must have the same length"
@@ -122,6 +121,8 @@ def save_pkl(model,loss_object,optimizer,train_dataloader,test_dataloader,config
     original_preds   = original_preds.cpu().numpy()
     targets          = targets.cpu().numpy()
     preds          = preds.cpu().numpy()
+    maxrel = MaxRel(original_targets,original_preds)
+    logger.info(f'{maxrel:.5f}')
 
     img_dir = os.path.join(save_dir,'img/')
     check_dir(img_dir)
@@ -140,7 +141,7 @@ def save_pkl(model,loss_object,optimizer,train_dataloader,test_dataloader,config
     #             "or_targets": original_targets[:20],
     #             "or_preds": original_preds[:20]
     #         }, pickle_file)
-    #     logger.info(f'saved {history_path}')
+        # logger.info(f'saved {history_path}')
     return preds,targets,original_targets,original_preds
 
 def single_model_eval_main():
@@ -150,26 +151,39 @@ def single_model_eval_main():
 
     train_file_list_path= f"dataset/data/{config['dataset']['name']}/train.txt"
     test_file_list_path = f"dataset/data/{config['dataset']['name']}/test.txt"
-    train_dataset = ChunkLoadingDataset(train_file_list_path,config['dataset']['batch_size'])
+    train_dataset = ChunkLoadingDataset(train_file_list_path,512)
     train_dataloader = DataLoader(train_dataset, batch_size=1, shuffle=False,num_workers=4,pin_memory=True,prefetch_factor=2)
-    test_dataset = ChunkLoadingDataset(test_file_list_path,config['dataset']['batch_size'])
+    test_dataset = ChunkLoadingDataset(test_file_list_path,512)
     test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    save_dir = '/home/dp332/dp332/dc-su2/results/mulfreq/ssim/best_sofar_ssim/'
+    save_dir = '/home/dp332/dp332/dc-su2/results/mulfreq/ro_200/'
     if config['dataset']['name'] == 'mulfreq':
         model = Net3D(7).to(device)
     else:
         model = Net(64).to(device)
-    full_model_checkpoint_path = '/home/dp332/dp332/dc-su2/results/mulfreq/ssim/best_sofar_ssim.pth'
-    checkpoint_loading = LoadCheckPoint(learning_model=model,file_path=full_model_checkpoint_path,stage=2,logger=logger,local_rank=device,ddp_on=True)
-    checkpoint_loading.load_checkpoint()
+    full_model_checkpoint_path = '/home/dp332/dp332/dc-su2/results/mulfreq/ro_200/best_sofar_ro_200.pth'
+
+    logger = Logging(save_dir, 'evaluation.txt')
 
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(model.parameters(), **optimizer_params)
     loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
 
-    pred,target,original_target,original_pred = save_pkl(model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,save_dir,scheduler=None)
+    checkpoint_loading = LoadCheckPoint(learning_model=model,optimizer=optimizer,file_path=full_model_checkpoint_path,stage=2,logger=logger,local_rank=device,ddp_on=False)
+    checkpoint_loading.load_checkpoint()
+
+    trainer = Trainer(model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,logger,scheduler=None)
+    preds,targets,total_loss,freq_loss,mse = trainer.test()
+    assert len(targets) == len(preds), "Targets and predictions must have the same length"
+    
+    original_targets,original_preds = trainer.postProcessing(targets,preds)
+    relative_loss = MaxRel(original_targets, original_preds)
+
+    # pred,target,original_target,original_pred = save_pkl(model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,save_dir,logger,scheduler=None)
+
+
+
     
 def comparison_main():
     args = parse_args()

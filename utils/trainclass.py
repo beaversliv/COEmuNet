@@ -77,8 +77,11 @@ class Trainer:
         MSE = []
         for bidx, samples in enumerate(self.test_dataloader):
             data, target = Variable(samples[0].squeeze(0)).to(self.device), Variable(samples[1].squeeze(0)).to(self.device)
+            start_time = time.time()
             with torch.no_grad():
                 pred = self.model(data)
+                end_time = time.time()
+            self.logger.info(f'computation time for batch {bidx}: {end_time - start_time:.4f}')
             soble_loss,mse = self.loss_object(target, pred)
             loss = soble_loss + mse
             
@@ -167,7 +170,7 @@ class Trainer:
                 min_   = self.dataset_stats['intensity']['min']
                 median = self.dataset_stats['intensity']['median']
                 y = y*median + min_
-            y = np.exp(y)
+            y = torch.exp(y)
             return y
         return transformation(target), transformation(pred)
 
@@ -226,14 +229,13 @@ class ddpTrainer:
         return epoch_loss,epoch_soble,epoch_mse
 
     def record_prediction(self, pred, targets):
+        '''
+        pred and target are in tensors
+        '''
         original_target = self.postProcessing(targets)
         original_pred = self.postProcessing(pred)
         relative_loss = MaxRel(original_target, original_pred)
-
-        # self.max_rel.append(relative_loss)
         ssim_per_batch = calculate_ssim_batch(targets, pred)
-        # self.ssim.append(ssim_per_batch)
-
         return relative_loss, ssim_per_batch
 
     def test(self):
@@ -253,15 +255,9 @@ class ddpTrainer:
                 loss = soble_loss + mse
                 # (scalar), [7 elements]
                 relative_loss, ssim_per_batch = self.record_prediction(pred, target)
-                # if relative_loss_epoch is None:
-                #     relative_loss_epoch = relative_loss
-                # else:
-                #     relative_loss_epoch = torch.concat([relative_loss_epoch, relative_loss], dim=0)
-                relative_loss_epoch.append(relative_loss)
-                # self.logger.info(f'index {bidx} has maxrel: {relative_loss.shape}')
-                ssim_epoch.append(ssim_per_batch)
-                # self.logger.info(f'index {bidx} has ssim: {ssim_per_batch}')
 
+                relative_loss_epoch.append(relative_loss)
+                ssim_epoch.append(ssim_per_batch)
                 L.append(loss.detach())
                 SL.append(soble_loss.detach())
                 MSE.append(mse.detach())
@@ -310,41 +306,12 @@ class ddpTrainer:
     def run(self):
         stop_signal = torch.tensor([0], device=self.local_rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
-            # self.logger.info(f'epoch {epoch} started.')
             epoch_loss,epoch_soble,epoch_mse = self.train()
             val_epoch_loss,val_epoch_soble,val_epoch_mse, val_maxrel,val_ssim = self.test() #todo 
-            # self.logger.info(f'epoch {epoch} completed')
             torch.cuda.empty_cache()  # Clear cache after training            
-            # Aggregate test losses
-            # dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
-            # val_epoch_loss = val_loss/self.world_size
-
-            # dist.all_reduce(val_feature, op=torch.distributed.ReduceOp.SUM)
-            # val_epoch_soble = val_feature/self.world_size
-
-            # dist.all_reduce(val_mse, op=torch.distributed.ReduceOp.SUM)
-            # val_epoch_mse = val_mse/self.world_size
-
-            # all_relative_loss = [torch.zeros_like(maxrel) for _ in range(self.world_size)]
-            # dist.all_gather(all_relative_loss, maxrel)
-
-            # if dist.get_rank() == 0:
-            #     # Concatenate along the first dimension to get a single tensor with data from all ranks
-            #     all_relative_loss = torch.concat(all_relative_loss, dim=0)  # Shape: (total_samples_across_all_ranks, 1)
-            #     self.logger.info('total_samples_across_all_ranks',all_relative_loss.shape)
-            #     # Calculate the median
-            #     val_maxrel = torch.median(all_relative_loss)
-            # else:
-            #     val_maxrel = None 
-
-            # dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
-            # val_ssim = avg_ssim / dist.get_world_size()
-            # val_ssim = val_ssim.mean(dim=0) 
 
             # Update history on master process
             if torch.distributed.get_rank() == 0:
-    
-                # self.logger.info('test start') 
                 self.log_metrics(epoch, epoch_loss, epoch_soble, epoch_mse, val_epoch_loss, val_epoch_soble,val_epoch_mse, val_maxrel, val_ssim)
             if self.scheduler:
                 self.scheduler.step()
@@ -357,16 +324,6 @@ class ddpTrainer:
             #     break
 
     def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_epoch_soble, aggregated_epoch_mse, aggregated_val_loss, val_feature,val_mse, val_maxrel,val_ssim):
-       
-        # Ensure targets and predictions have the same length
-        # assert len(all_targets) == len(all_preds), "Targets and predictions must have the same length"
-        # all_targets = all_targets.cpu().numpy()
-        # all_preds   = all_preds.cpu().numpy()
-        # original_target = self.postProcessing(all_targets)
-        # original_pred = self.postProcessing(all_preds)
-        # relative_loss = MaxRel(original_target, original_pred)
-        
-        # avg_ssim = calculate_ssim_batch(all_targets, all_preds)
         self.logger.info(f'epoch:{epoch}, train_loss:{aggregated_epoch_loss.cpu().item()},'
                             f'train_feature:{aggregated_epoch_soble.cpu().item()},'
                             f'train_mse:{aggregated_epoch_mse.cpu().item()},'
@@ -374,7 +331,7 @@ class ddpTrainer:
                             f'val_feature:{val_feature.cpu().item()},'
                             f'val_mse:{val_mse.cpu().item()},'
                             f'val_maxrel:{val_maxrel.cpu().item()},'
-                            f'val_ssim:{val_ssim.cpu().tolist()}\n')
+                            f'val_ssim:{val_ssim.cpu().tolist()}')
         model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
         torch.save( {
             'epoch': epoch,
@@ -394,7 +351,7 @@ class ddpTrainer:
                 'optimizer_state_dict': self.optimizer.state_dict(),
                 'current_maxrel':val_ssim.cpu().tolist(),
             },model_path)
-            self.logger.info(f"Model saved at epoch {epoch}")
+            self.logger.info(f"Model saved at epoch {epoch}\n")
         # else:
         #     self.patience_counter += 1
         # if patience_counter >= self.config['patience']:

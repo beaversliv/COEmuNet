@@ -80,9 +80,11 @@ def setup(rank, world_size):
 def cleanup():
     "Cleans up the distributed environment"
     dist.destroy_process_group()
+
 class LoadCheckPoint():
-    def __init__(self,learning_model,file_path,stage,logger,local_rank,ddp_on=True):
+    def __init__(self,learning_model,optimizer,file_path,stage,logger,local_rank,ddp_on=True):
         self.learning_model = learning_model
+        self.optimizer      = optimizer
         self.file_path      = file_path
         self.stage          = stage
         self.logger         = logger
@@ -111,17 +113,17 @@ class LoadCheckPoint():
         state = self.get_state_dict(state, self.ddp_on)
         try:
             if self.stage==1:
-                self.logger.info(f"* only load encoder", gpu_rank=self.local_rank)
+                self.logger.info(f"* only load encoder")
                 self.learning_model.encoder_state_dict = {k: v for k, v in state.items() if k.startswith('encoder')}
             else:
                 self.learning_model.load_state_dict(state, strict=True)
         except RuntimeError as e:
-            self.logger.info(e, gpu_rank=self.local_rank)
+            self.logger.info(e)
             self.learning_model.load_state_dict(state, strict=False)
 
     def load_checkpoint(self, model_only=False):
         if os.path.isfile(self.file_path):
-            self.logger.info(f"=> loading checkpoint '{self.file_path}'", gpu_rank=self.local_rank)
+            self.logger.info(f"=> loading checkpoint '{self.file_path}'")
             try:
                 checkpoint = torch.load(self.file_path, map_location=self.local_rank, weights_only=True)
             except RuntimeError as e:
@@ -131,21 +133,21 @@ class LoadCheckPoint():
             # set strict to True for omitting key missmatch in the checkpoint and the current model
             if 'model_state_dict' not in checkpoint: # only happens in pre_trained model,stage 1
                 self.load_state(checkpoint)
-                self.logger.info(f"=> loaded checkpoint '{self.file_path}'", gpu_rank=self.local_rank)
+                self.logger.info(f"=> loaded checkpoint '{self.file_path}'")
             else:
                 self.load_state(checkpoint['model_state_dict'])
                 if model_only:
-                    self.logger.info(f"=> loaded checkpoint '{self.file_path}'", gpu_rank=self.local_rank)
+                    self.logger.info(f"=> loaded checkpoint '{self.file_path}'")
                     return
                 if self.stage == 2:
                     self.start_epoch = checkpoint['epoch'] + 1
                     if 'optimizer_state_dict' in checkpoint:
                         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                self.logger.info(f"=> loaded checkpoint '{self.file_path}' (trained {checkpoint['epoch']}+1 epochs)",
-                                 gpu_rank=self.local_rank)
+                        self.logger.info(f'=> loaded optimizer')
+                self.logger.info(f"=> loaded checkpoint '{self.file_path}' (trained {checkpoint['epoch']}+1 epochs)")
         else:
             info = f"=> no checkpoint found at '{self.file_path}'"
-            self.logger.info(info, gpu_rank=self.local_rank)
+            self.logger.info(info)
             raise FileNotFoundError(info)
 
 
