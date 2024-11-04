@@ -60,25 +60,44 @@ def main(config):
     test_dataloader = MultiEpochsDataLoader(test_dataset, 1, sampler=sampler_test,num_workers=num_workers, shuffle=False)
     torch.cuda.set_device(local_rank)
     if config['dataset']['name'] == 'mulfreq':
-        model = Net3D(7).to(local_rank)
+        model = Net3D(7,config['dataset']['grid']).to(local_rank)
     else:
-        model = Net(64).to(local_rank)
+        model = Net(config['dataset']['grid']).to(local_rank)
 
+    if local_rank == 0:
+        # Count trainable parameters
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info(f"Total parameters: {total_params}")
+        logger.info(f"Trainable parameters: {trainable_params}")
+
+    
     file_path = config['model'].get('resume_checkpoint',None)
+    # load checkpoint that is unwrapped with ddp, so no module.
+    checkpoint_loading = LoadCheckPoint(
+        learning_model=model,
+        optimizer=None,
+        file_path=file_path,
+        stage=config['model']['stage'],
+        logger=logger,
+        local_rank=f'cuda:{local_rank}',
+        ddp_on=False
+    )
+    checkpoint_loading.load_checkpoint(model_only=True)
+    # Wrap the model with DDP
+    ddp_model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
 
-    checkpoint_loading = LoadCheckPoint(learning_model=model,optimizer=optimizer, file_path=file_path,stage=config['model']['stage'],logger=logger,local_rank=f'cuda:{local_rank}',ddp_on=True)
-    checkpoint_loading.load_checkpoint()
-
-    ddp_model = DDP(model, device_ids=[local_rank],find_unused_parameters=True)
-    
+    checkpoint_loading.optimizer = optimizer
+    checkpoint_loading.load_checkpoint(model_only=False)
+        
     # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
     # scheduler = CyclicLR(optimizer,base_lr=1e-3,max_lr=0.1,step_size_up=100,mode='triangular',cycle_momentum=False)
     scheduler = StepLR(optimizer,step_size=20,gamma=0.1)
-    loss_object = FreqMse(alpha=config['model']['alpha'],beta=config['model']['beta'])
+    loss_object = FreqMse(alpha=config['model']['alpha'])
     # Create the Trainer instance
     trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler=None)
 
