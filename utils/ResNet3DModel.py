@@ -96,15 +96,21 @@ class Decoder(nn.Module):
         return x
 
 class Latent(nn.Module):
-    def __init__(self,input_dim,model_grid=64):
+    def __init__(self,model_grid=64,freq=7):
         super(Latent,self).__init__()
         self.layers =  nn.ModuleList()
-        if model_grid == 32:
-            out_dim = 64 * 4 * 4
-        elif model_grid == 64:
-            out_dim = 64 * 8 * 8
-        elif model_grid == 128:
-            out_dim = 64 * 16 * 16
+        self.model_grid = model_grid
+        self.freq       = freq
+
+        if self.model_grid == 32:
+            input_dim = 32*2*2*2*3
+            out_dim = 64 * 4 * 4 * self.freq
+        elif self.model_grid == 64:
+            input_dim = 32*4*4*4*3
+            out_dim = 64 * 8 * 8 * self.freq
+        elif self.model_grid == 128:
+            input_dim = 32*8*8*8*3
+            out_dim = 64 * 16 * 16 * self.freq
 
         self.layers.append(nn.Linear(input_dim, 16**3))
         self.layers.append(nn.Linear(16**3, out_dim))
@@ -113,6 +119,14 @@ class Latent(nn.Module):
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
+        if self.model_grid == 32:
+            latent_grid = 4
+        elif self.model_grid == 64:
+            latent_grid = 8
+        elif self.model_grid == 128:
+            latent_grid = 16
+
+        x = x.view(-1, 64, self.freq, latent_grid, latent_grid)
         return x
 
 class Net(nn.Module):
@@ -144,6 +158,7 @@ class Net(nn.Module):
         x0 = torch.flatten(x0, start_dim=1)   
         x1 = torch.flatten(x1, start_dim=1)   
         x2 = torch.flatten(x2, start_dim=1) 
+
         # x shape (batch size, 32*4*4*4*3)
         x = torch.cat([x0, x1, x2], dim = -1)
  
@@ -196,17 +211,26 @@ class Decoder3D(nn.Module):
         return x
 
 class Net3D(nn.Module):
-    def __init__(self,freq=31):
+    def __init__(self,freq=7,model_grid=64):
         super(Net3D, self).__init__()
         # self.apply(he_init)
         self.freq     = freq     # number of frequencies
+        self.model_grid = model_grid
         self.encoder0 = Encoder(1)
         self.encoder1 = Encoder(1)
         self.encoder2 = Encoder(1)
         # grid 64
-        self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
-        self.to_dec = nn.Linear(16*16*16,64*8*8*self.freq)
-        
+        if self.model_grid == 32:
+            self.to_lat = nn.Linear(32*2*2*2*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*4*4*self.freq)
+
+        elif self.model_grid == 64:        
+            self.to_lat = nn.Linear(32*4*4*4*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*8*8*self.freq)
+        elif self.model_grid == 128:        
+            self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
+            self.to_dec = nn.Linear(16*16*16,64*16*16*self.freq)
+            
         self.decoder3d= Decoder3D(in_channels=64, out_channels=1)
         
         
@@ -221,14 +245,21 @@ class Net3D(nn.Module):
         x2 = torch.flatten(x2, start_dim=1) 
         # x shape (batch size, 32*4*4*4*3)
         x = torch.cat([x0, x1, x2], dim = -1)
- 
         # (batch, 16*16*16)
         x_latent = self.to_lat(x) #dense layer
         x = nn.ReLU()(self.to_dec(x_latent)) # latent space
 
-        x = x.view(-1, 64, self.freq, 8, 8)  # treat 31 as a sequence or depth
+        if self.model_grid == 32:
+            latent_grid = 4
+        elif self.model_grid == 64:
+            latent_grid = 8
+        elif self.model_grid == 128:
+            latent_grid = 16
+
+        x = x.view(-1, 64, self.freq, latent_grid, latent_grid) # treat 31 as a sequence or depth
+
+        # x = x.view(-1, 64, self.freq, 8, 8)  # treat 31 as a sequence or depth
         
 	    # shape (batch_size,64,8,8)
         output = self.decoder3d(x)
         return output
-

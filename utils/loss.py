@@ -63,10 +63,9 @@ class SobelLoss(nn.Module):
         
         return loss
 class FreqMse(nn.Module):
-    def __init__(self,alpha=0.8,beta=0.2):
+    def __init__(self,alpha=0.8):
         super(FreqMse, self).__init__()
         self.alpha     = alpha
-        self.beta      = beta
 
     def calculate_freq_loss(self,target,pred):
         # ensure FFT takes float32
@@ -82,8 +81,8 @@ class FreqMse(nn.Module):
         # Calculate the MSE loss
         loss_mse = nn.functional.mse_loss(pred, target)
         # Combine the losses
-        loss_combined = self.alpha * loss_edge + self.beta * loss_mse 
-        return self.alpha * loss_edge,self.beta * loss_mse
+        loss_combined = self.alpha * loss_edge + (1-self.alpha) * loss_mse 
+        return self.alpha * loss_edge,(1-self.alpha) * loss_mse
 
 # def MaxRel(original_target,original_pred):
 #     'relative loss in percentage'
@@ -94,26 +93,145 @@ class FreqMse(nn.Module):
 #     return torch.tensor(maxrel_per_sample)
 
 #     # return np.mean( np.abs(original_target-original_pred) / np.max(original_target, axis=1,keepdims=True)) * 100
-def MaxRel(original_target, original_pred):
-    """Calculate the relative loss in percentage using PyTorch."""
-    # Calculate maxrel for each sample
-    if original_pred.ndim == 5:
-        batch_size, channels, depth, height, width = original_pred.shape
-        pred_reshaped = original_pred.view(batch_size * channels, depth, height, width)
-        target_reshaped = original_target.view(batch_size * channels, depth, height, width)
-    elif original_pred.ndim == 4:
-        pred_reshaped = original_pred
-        target_reshaped = original_target
-    else:
-        raise ValueError(f"Unsupported input dimensions: {original_pred.ndim}")
+class MaxRel:
+    '''
+    Return the maxrel in local batch, with or without cutting out centre region
+    maxrel: scalar value
+    '''
+    def __init__(self,original_target, original_pred):
+        # Check if inputs are NumPy arrays or PyTorch tensors and convert accordingly
+
+        if isinstance(original_target, np.ndarray):
+            self.original_target = torch.from_numpy(original_target)
+        elif isinstance(original_target, torch.Tensor):
+            self.original_target = original_target
+        else:
+            raise ValueError("original_target must be a NumPy array or a PyTorch tensor.")
+
+        if isinstance(original_pred, np.ndarray):
+            self.original_pred = torch.from_numpy(original_pred)
+        elif isinstance(original_pred, torch.Tensor):
+            self.original_pred = original_pred
+        else:
+            raise ValueError("original_pred must be a NumPy array or a PyTorch tensor.")
+        self.batch_size = None
+        self.channels   = None
     
-    max_per_sample = torch.max(target_reshaped, dim=1, keepdim=True).values  # Max value along the specified dimension
-    abs_diff = torch.abs(target_reshaped - pred_reshaped)
-    rel_error = abs_diff / max_per_sample  # Element-wise relative error
-    maxrel_per_sample = torch.mean(rel_error, dim=(1, 2, 3)) * 100  # Average over dimensions and convert to percentage
-    # Calculate median of maxrel across all samples
-    maxrel = torch.median(maxrel_per_sample)
-    return maxrel
+    def maxrel(self,center_size):
+        """Calculate the relative loss in percentage using PyTorch."""
+        # Calculate maxrel for each sample
+        if self.original_pred.ndim == 5:
+            # reshape to (batch, 7, 64,64)
+            batch_size, channels, depth, height, width = self.original_pred.shape
+            pred_reshaped = self.original_pred.view(batch_size * channels, depth, height, width)
+            target_reshaped = self.original_target.view(batch_size * channels, depth, height, width)
+        elif self.original_pred.ndim == 4:
+            # reshape to (batch, 1, 64,64)
+            pred_reshaped = self.original_pred
+            target_reshaped = self.original_target
+        else:
+            raise ValueError(f"Unsupported input dimensions: {self.original_pred.ndim}")
+        
+        max_per_sample = torch.max(target_reshaped, dim=1, keepdim=True).values  # Max value along the specified dimension
+        abs_diff = torch.abs(target_reshaped - pred_reshaped)
+        rel_error = abs_diff / max_per_sample  # Element-wise relative error
+
+        filled_rel_error = self.fill_center_with_avg(rel_error, center_size)
+        
+        maxrel_per_sample = torch.mean(filled_rel_error, dim=(1, 2, 3)) * 100  # Average over dimensions and convert to percentage
+        # Calculate median of maxrel across all samples
+        maxrel = torch.median(maxrel_per_sample)
+        return maxrel
+    
+    def fill_center_with_avg(self,rel_error,center_size):
+        batch_size,channels,h,w = rel_error.shape
+        # Create a copy to modify
+        filled_rel_error = rel_error.clone()
+        center_h, center_w = h // 2, w // 2
+
+        # Calculate start and end indices for the center region
+        start_h = center_h - center_size // 2
+        end_h = center_h + center_size // 2
+        start_w = center_w - center_size // 2
+        end_w = center_w + center_size // 2
+
+        # Calculate the average value excluding the center region
+        for b in range(batch_size):
+            for c in range(channels):
+                # Create a mask for the center region
+                mask = torch.ones_like(filled_rel_error[b, c], dtype=torch.bool)
+                mask[start_h:end_h, start_w:end_w] = False  # Exclude center region
+                
+                # Compute the average of the remaining pixels (excluding the center)
+                avg_value = filled_rel_error[b, c][mask].mean()
+                
+                # Fill the center region with the average value
+                filled_rel_error[b, c, start_h:end_h, start_w:end_w] = avg_value
+
+        return filled_rel_error
+    
+def single_maxrel(target, pred, centre_size):
+    ''' Batched tar and pred in original space, numpy'''
+    # Reshape the target and prediction arrays
+    if pred.ndim == 5:
+        # reshape to (batch, 7, 64,64)
+        batch_size, channels, depth, height, width = pred.shape
+        pred_reshaped = pred.reshape(batch_size * channels, depth, height, width)
+        target_reshaped = target.reshape(batch_size * channels, depth, height, width)
+    elif pred.ndim == 4:
+        # reshape to (batch, 1, 64,64)
+        pred_reshaped = pred
+        target_reshaped = target
+
+
+    # Calculate the relative error
+    maxrel = np.abs(target_reshaped - pred_reshaped) / np.max(target_reshaped, axis=1, keepdims=True) * 100
+    filled_rel_error = maxrel.copy()
+    
+    center_h, center_w = height // 2, height // 2
+
+    # Calculate start and end indices for the center region
+    start_h = center_h - centre_size // 2
+    end_h = center_h + centre_size // 2
+    start_w = center_w - centre_size // 2
+    end_w = center_w + centre_size // 2
+
+    # Calculate the average value excluding the center region
+    for b in range(batch_size):
+        for c in range(depth):
+            # Create a mask for the center region
+            mask = np.ones_like(filled_rel_error[b,c], dtype=bool)  # Corrected to use bool
+            mask[start_h:end_h, start_w:end_w] = False  # Exclude center region
+            
+            # Compute the average of the remaining pixels (excluding the center)
+            avg_value = filled_rel_error[b,c][mask].mean()
+            
+            # Fill the center region with the average value
+            filled_rel_error[b,c, start_h:end_h, start_w:end_w] = avg_value
+    
+    return filled_rel_error
+
+# def MaxRel(original_target, original_pred):
+#     """Calculate the relative loss in percentage using PyTorch."""
+#     # Calculate maxrel for each sample
+#     if original_pred.ndim == 5:
+#         batch_size, channels, depth, height, width = original_pred.shape
+#         pred_reshaped = original_pred.view(batch_size * channels, depth, height, width)
+#         target_reshaped = original_target.view(batch_size * channels, depth, height, width)
+#     elif original_pred.ndim == 4:
+#         pred_reshaped = original_pred
+#         target_reshaped = original_target
+#     else:
+#         raise ValueError(f"Unsupported input dimensions: {original_pred.ndim}")
+    
+#     max_per_sample = torch.max(target_reshaped, dim=1, keepdim=True).values  # Max value along the specified dimension
+#     abs_diff = torch.abs(target_reshaped - pred_reshaped)
+#     rel_error = abs_diff / max_per_sample  # Element-wise relative error
+    
+#     maxrel_per_sample = torch.mean(rel_error, dim=(1, 2, 3)) * 100  # Average over dimensions and convert to percentage
+#     # Calculate median of maxrel across all samples
+    # maxrel = torch.median(maxrel_per_sample)
+#     return maxrel
 
 
 def calculate_ssim_batch(target, pred):

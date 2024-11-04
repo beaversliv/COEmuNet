@@ -234,9 +234,24 @@ class ddpTrainer:
         '''
         original_target = self.postProcessing(targets)
         original_pred = self.postProcessing(pred)
-        relative_loss = MaxRel(original_target, original_pred)
+
+        # relative_loss = MaxRel(original_target, original_pred)
+        maxrel_calculation = MaxRel(original_target,original_pred)
+        relative_loss = maxrel_calculation.maxrel(center_size=0)
+        exclude_maxrel_error_2x2 = maxrel_calculation.maxrel(center_size=2)
+        exclude_maxrel_error_4x4 = maxrel_calculation.maxrel(center_size=4)
+        exclude_maxrel_error_6x6 = maxrel_calculation.maxrel(center_size=6)
+
         ssim_per_batch = calculate_ssim_batch(targets, pred)
-        return relative_loss, ssim_per_batch
+
+        record_values = {
+            'maxrel':relative_loss,
+            'maxrel_exclude_2x2':exclude_maxrel_error_2x2,
+            'maxrel_exclude_4x4':exclude_maxrel_error_4x4,
+            'maxrel_exclude_6x6':exclude_maxrel_error_6x6,
+            'ssim': ssim_per_batch
+        }
+        return record_values
 
     def test(self):
         self.ddp_model.eval()
@@ -245,6 +260,9 @@ class ddpTrainer:
         SL = []
         MSE = []
         relative_loss_epoch = []
+        exclude_2x2_epoch = []
+        exclude_4x4_epoch = []
+        exclude_6x6_epoch = []
         ssim_epoch = []
         with torch.no_grad():
             for bidx, samples in enumerate(self.test_dataloader):
@@ -253,19 +271,27 @@ class ddpTrainer:
                 soble_loss,mse = self.loss_object(target, pred)
 
                 loss = soble_loss + mse
-                # (scalar), [7 elements]
-                relative_loss, ssim_per_batch = self.record_prediction(pred, target)
+                # (scalar): local median value, [7 elements]
+                record_values = self.record_prediction(pred, target)
 
-                relative_loss_epoch.append(relative_loss)
-                ssim_epoch.append(ssim_per_batch)
+                relative_loss_epoch.append(record_values['maxrel'])
+                exclude_2x2_epoch.append(record_values['maxrel_exclude_2x2'])
+                exclude_4x4_epoch.append(record_values['maxrel_exclude_4x4'])
+                exclude_6x6_epoch.append(record_values['maxrel_exclude_6x6'])
+
+                ssim_epoch.append(record_values['ssim'])
                 L.append(loss.detach())
                 SL.append(soble_loss.detach())
                 MSE.append(mse.detach())
 
                 if bidx % 50 == 0:
                     self.logger.info(f'Test batch [{bidx}/{len(self.test_dataloader)}]: freq loss: {soble_loss:.4f}, mse:{mse:.4f}, total loss:{loss:.4f}',gpu_rank=self.rank)
-        # maxrel per samples in certain rank
+        # maxrel in certain rank
         maxrel = torch.stack(relative_loss_epoch)
+        maxrel2 = torch.stack(exclude_2x2_epoch)
+        maxrel4 = torch.stack(exclude_4x4_epoch)
+        maxrel6 = torch.stack(exclude_6x6_epoch)
+
         # ssim in certain rank
         avg_ssim   = torch.stack(ssim_epoch,dim=0)
 
@@ -287,78 +313,99 @@ class ddpTrainer:
         val_epoch_mse = val_mse/self.world_size
 
         all_relative_loss = [torch.zeros_like(maxrel) for _ in range(self.world_size)]
+        all_relative_loss2 = [torch.zeros_like(maxrel2) for _ in range(self.world_size)]
+        all_relative_loss4 = [torch.zeros_like(maxrel4) for _ in range(self.world_size)]
+        all_relative_loss6 = [torch.zeros_like(maxrel6) for _ in range(self.world_size)]
         dist.all_gather(all_relative_loss, maxrel)
+        dist.all_gather(all_relative_loss2, maxrel2)
+        dist.all_gather(all_relative_loss4, maxrel4)
+        dist.all_gather(all_relative_loss6, maxrel6)
 
         if dist.get_rank() == 0:
             # Concatenate along the first dimension to get a single tensor with data from all ranks
             all_relative_loss = torch.concat(all_relative_loss, dim=0)  # Shape: (total_samples_across_all_ranks, 1)
+            all_relative_loss2 = torch.concat(all_relative_loss2, dim=0)
+            all_relative_loss4 = torch.concat(all_relative_loss4, dim=0)
+            all_relative_loss6 = torch.concat(all_relative_loss6, dim=0)
             self.logger.info('total_samples_across_all_ranks',all_relative_loss.shape)
-            # Calculate the median
+            # Calculate the median of the medians
             val_maxrel = torch.median(all_relative_loss)
+            val_maxrel2 = torch.median(all_relative_loss2)
+            val_maxrel4 = torch.median(all_relative_loss4)
+            val_maxrel6 = torch.median(all_relative_loss6)
         else:
-            val_maxrel = None 
+            val_maxrel,val_maxrel2,val_maxrel4,val_maxrel6 = None,None,None,None 
 
         dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
         val_ssim = avg_ssim / dist.get_world_size()
         val_ssim = val_ssim.mean(dim=0) 
+        maxrels = {
+            'maxrel':val_maxrel,
+            'maxrel_exclude_2x2':val_maxrel2,
+            'maxrel_exclude_4x4':val_maxrel4,
+            'maxrel_exclude_6x6':val_maxrel6
+        }
 
-        return val_epoch_loss,val_epoch_soble,val_epoch_mse, val_maxrel,val_ssim
+        return val_epoch_loss,val_epoch_soble,val_epoch_mse, maxrels,val_ssim
     def run(self):
         stop_signal = torch.tensor([0], device=self.local_rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss,epoch_soble,epoch_mse = self.train()
-            val_epoch_loss,val_epoch_soble,val_epoch_mse, val_maxrel,val_ssim = self.test() #todo 
+            val_epoch_loss,val_epoch_soble,val_epoch_mse, val_maxrels,val_ssim = self.test() #todo 
             torch.cuda.empty_cache()  # Clear cache after training            
 
             # Update history on master process
             if torch.distributed.get_rank() == 0:
-                self.log_metrics(epoch, epoch_loss, epoch_soble, epoch_mse, val_epoch_loss, val_epoch_soble,val_epoch_mse, val_maxrel, val_ssim)
+                record_values = {
+                    'train_loss':epoch_loss.cpu().item(),
+                    'train_feature':epoch_soble.cpu().item(),
+                    'train_mse':epoch_mse.cpu().item(),
+                    'val_loss':val_epoch_loss.cpu().item(),
+                    'val_feature':val_epoch_soble.cpu().item(),
+                    'val_mse':val_epoch_mse.cpu().item(),
+                    'val_maxrel':val_maxrels['maxrel'].cpu().item(),
+                    'val_maxrel_exclude_2x2':val_maxrels['maxrel_exclude_2x2'].cpu().item(),
+                    'val_maxrel_exclude_4x4':val_maxrels['maxrel_exclude_4x4'].cpu().item(),
+                    'val_maxrel_exclude_6x6':val_maxrels['maxrel_exclude_6x6'].cpu().item(),
+                    'val_ssim': val_ssim.cpu().tolist()
+                }
+                self.log_metrics(epoch, record_values)
             if self.scheduler:
                 self.scheduler.step()
-            #     if stop_training:
-            #         stop_signal[0] = 1  # Set stop signal
 
-            # # Broadcast the stop signal to all processes
-            # dist.broadcast(stop_signal, src=0)
-            # if stop_signal[0].item() == 1:
-            #     break
-
-    def log_metrics(self, epoch, aggregated_epoch_loss, aggregated_epoch_soble, aggregated_epoch_mse, aggregated_val_loss, val_feature,val_mse, val_maxrel,val_ssim):
-        self.logger.info(f'epoch:{epoch}, train_loss:{aggregated_epoch_loss.cpu().item()},'
-                            f'train_feature:{aggregated_epoch_soble.cpu().item()},'
-                            f'train_mse:{aggregated_epoch_mse.cpu().item()},'
-                            f'val_loss:{aggregated_val_loss.cpu().item()},'
-                            f'val_feature:{val_feature.cpu().item()},'
-                            f'val_mse:{val_mse.cpu().item()},'
-                            f'val_maxrel:{val_maxrel.cpu().item()},'
-                            f'val_ssim:{val_ssim.cpu().tolist()}')
+    def log_metrics(self, epoch, record_values):
+        self.logger.info(f"epoch:{epoch}, train_loss:{record_values['train_loss']},"
+                            f"train_feature:{record_values['train_feature']},"
+                            f"train_mse:{record_values['train_mse']},"
+                            f"val_loss:{record_values['val_loss']},"
+                            f"val_feature:{record_values['val_feature']},"
+                            f"val_mse:{record_values['val_mse']},"
+                            f"val_maxrel:{record_values['val_maxrel']},"
+                            f"val_maxrel_exclude_2x2:{record_values['val_maxrel_exclude_2x2']},"
+                            f"val_maxrel_exclude_4x4:{record_values['val_maxrel_exclude_4x4']},"
+                            f"val_maxrel_exclude_6x6:{record_values['val_maxrel_exclude_6x6']},"
+                            f"val_ssim:{record_values['val_ssim']}")
         model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
         torch.save( {
             'epoch': epoch,
             'model_state_dict':self.ddp_model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'current_maxrel':val_ssim.cpu().tolist(),
+            'current_maxrel':record_values['val_maxrel'],
         },model_path)
 
         # self.logger.info(f"Model saved at epoch {epoch}")
-        if val_maxrel.cpu().item() < self.best_loss:
-            self.best_loss = val_maxrel.cpu().item()
+        if record_values['val_maxrel'] < self.best_loss:
+            self.best_loss = record_values['val_maxrel']
             # self.patience_counter = 0
             model_path = os.path.join(self.config['output']['save_path'], 'best_sofar_'+self.config['output']['model_file'])
             torch.save( {
                 'epoch': epoch,
                 'model_state_dict':self.ddp_model.state_dict(),
                 'optimizer_state_dict': self.optimizer.state_dict(),
-                'current_maxrel':val_ssim.cpu().tolist(),
+                'current_maxrel':record_values['val_maxrel'],
             },model_path)
             self.logger.info(f"Model saved at epoch {epoch}\n")
-        # else:
-        #     self.patience_counter += 1
-        # if patience_counter >= self.config['patience']:
-        #     print("Early stopping triggered")
-        #     return True
-        # else:
-        #     return False
+
     def eval(self):
         dist.barrier()
         if self.rank == 0:
