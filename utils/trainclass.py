@@ -2,7 +2,7 @@ import torch
 import torch.distributed as dist
 from torch.autograd import Variable
 
-from utils.loss     import calculate_ssim_batch,MaxRel
+from utils.loss     import EvaluationMetrics
 from utils.utils    import load_statistics
 from tqdm           import tqdm
 import numpy as np
@@ -68,6 +68,63 @@ class Trainer:
         epoch_mse = total_mse / len(self.train_dataloader)
         return epoch_loss,epoch_soble,epoch_mse
     
+    def get_average_metrics(self,results):
+        """
+        Calculate the average for each metric across all evaluations.
+        
+        Returns:
+            dict: A dictionary containing the average of each metric.
+        """
+        average_metrics = {}
+        if results['maxrel']:
+            average_metrics['maxrel'] = sum(results['maxrel']) / len(results['maxrel'])
+        else:
+            average_metrics['maxrel'] = 0.0
+
+        # Calculate average for `zncc` and `ssim`, each with 7 sub-lists
+        average_metrics['zncc'] = []
+        average_metrics['ssim'] = []
+
+        for i in range(7):
+            if results['zncc'][i]:
+                average_zncc = sum(results['zncc'][i]) / len(results['zncc'][i])
+            else:
+                average_zncc = 0.0
+            average_metrics['zncc'].append(average_zncc)
+
+            if results['ssim'][i]:
+                average_ssim = sum(results['ssim'][i]) / len(results['ssim'][i])
+            else:
+                average_ssim = 0.0
+            average_metrics['ssim'].append(average_ssim)
+
+        return average_metrics
+
+    def eval(self):
+        self.model.eval()
+        maxrel_data = []
+        results = {
+            'maxrel': [],
+            'zncc' : [[] for _ in range(7)],
+            'ssim': [[] for _ in range(7)]
+        }
+        matrics_calculation = EvaluationMetrics(postprocess_fn=self.postProcessing)
+        for bidx, (data, target,file_idx, index_range) in enumerate(self.test_dataloader):
+            data, target = Variable(data.squeeze(0)).to(self.device), Variable(target.squeeze(0)).to(self.device)
+            with torch.no_grad():
+                pred = self.model(data)
+            self.logger.info(f"Loaded batch from file number: {file_idx.item()}, index range in file: {index_range}")
+            metrics = matrics_calculation.evaluate(target, pred)
+            results['maxrel'].append(metrics['maxrel'].item())
+            for i in range(7):
+                results['zncc'][i].append(metrics['zncc'][i].item())
+                results['ssim'][i].append(metrics['ssim'][i].item())
+
+            self.logger.info(f"Metrics for batch {bidx}: {metrics}")
+        average_metrics = self.get_average_metrics(results)
+        return average_metrics
+
+
     def test(self):
         self.model.eval()
         P = []
@@ -84,7 +141,7 @@ class Trainer:
             self.logger.info(f'computation time for batch {bidx}: {end_time - start_time:.4f}')
             soble_loss,mse = self.loss_object(target, pred)
             loss = soble_loss + mse
-            
+
             P.append(pred.detach())
             T.append(target.detach())
             L.append(loss.detach())
@@ -96,6 +153,7 @@ class Trainer:
         SL = torch.stack(SL)
         MSE = torch.stack(MSE)
         return P,T,torch.mean(L),torch.mean(SL),torch.mean(MSE)
+    
     def run(self):
         for epoch in tqdm(range(self.config['model']['epochs'])):
             self.logger.info(f'epoch:{epoch+1} starts train')
@@ -103,16 +161,13 @@ class Trainer:
             torch.cuda.empty_cache()  # Clear cache after training
             
             val_p,val_t,val_loss, val_feature,val_mse = self.test()
+            matrics_calculation = EvaluationMetrics(postprocess_fn=self.postProcessing)
+            metrics = matrics_calculation.evaluate(val_p, val_t)
+
             torch.cuda.empty_cache()  # Clear cache after evaluation
-            original_targets = self.postProcessing(val_t)
-            original_preds = self.postProcessing(val_p)
-
-            relative_loss = MaxRel(original_targets, original_preds)
-            avg_ssim = calculate_ssim_batch(val_t, val_p) # a tensor(list)
-
 
             self.log_metrics(epoch, train_loss, train_feature,train_mse, 
-                                    val_loss, val_feature,val_mse,relative_loss,avg_ssim)
+                                    val_loss, val_feature,val_mse,metrics['maxrel'],metrics['ssim'])
             if self.scheduler:
                 self.scheduler.step()
             # if patience_counter >= self.config['patience']:
@@ -154,25 +209,24 @@ class Trainer:
             self.logger.info(f'saved {history_path}!\n')
             self.logger.info('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], test_loss.cpu().item()))
             self.logger.info('best loss', self.best_loss)
-            original_target,original_pred = self.postProcessing(target.cpu().item(),pred.cpu().item())
+            original_target,original_pred = self.postProcessing(target.cpu().item()),self.postProcessing(pred.cpu().item())
             self.logger.info(f'relative loss {MaxRel(original_target,original_pred):.5f}%')
 
             avg_ssim = calculate_ssim_batch(target.cpu().item(),pred.cpu().item())
             for freq in range(len(avg_ssim)):
                 self.logger.info(f'frequency {freq + 1} has ssim {avg_ssim[freq]:.4f}')
-    def postProcessing(self, target,pred):
-        def transformation(y):
-            if self.config['dataset']['name'] =='mulfreq':
-                max_   = self.dataset_stats['intensity']['max']
-                min_   = self.dataset_stats['intensity']['min']
-                y = y*(max_ - min_)+min_
-            else:
-                min_   = self.dataset_stats['intensity']['min']
-                median = self.dataset_stats['intensity']['median']
-                y = y*median + min_
-            y = torch.exp(y)
-            return y
-        return transformation(target), transformation(pred)
+    
+    def postProcessing(self,y):
+        if self.config['dataset']['name'] =='mulfreq':
+            max_   = self.dataset_stats['intensity']['max']
+            min_   = self.dataset_stats['intensity']['min']
+            y = y*(max_ - min_)+min_
+        else:
+            min_   = self.dataset_stats['intensity']['min']
+            median = self.dataset_stats['intensity']['median']
+            y = y*median + min_
+        y = torch.exp(y)
+        return y
 
  ### train step ###       
 class ddpTrainer:
