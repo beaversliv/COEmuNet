@@ -314,10 +314,9 @@ class ddpTrainer:
         SL = []
         MSE = []
         relative_loss_epoch = []
-        exclude_2x2_epoch = []
-        exclude_4x4_epoch = []
-        exclude_6x6_epoch = []
+        zncc_epoch = []
         ssim_epoch = []
+        matrics_calculation = EvaluationMetrics(postprocess_fn=self.postProcessing)
         with torch.no_grad():
             for bidx, samples in enumerate(self.test_dataloader):
                 data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank)
@@ -326,14 +325,11 @@ class ddpTrainer:
 
                 loss = soble_loss + mse
                 # (scalar): local median value, [7 elements]
-                record_values = self.record_prediction(pred, target)
+                metrics = matrics_calculation.evaluate(target, pred)
 
-                relative_loss_epoch.append(record_values['maxrel'])
-                exclude_2x2_epoch.append(record_values['maxrel_exclude_2x2'])
-                exclude_4x4_epoch.append(record_values['maxrel_exclude_4x4'])
-                exclude_6x6_epoch.append(record_values['maxrel_exclude_6x6'])
-
-                ssim_epoch.append(record_values['ssim'])
+                relative_loss_epoch.append(metrics['maxrel'])
+                zncc_epoch.append(metrics['zncc'])
+                ssim_epoch.append(metrics['ssim'])
                 L.append(loss.detach())
                 SL.append(soble_loss.detach())
                 MSE.append(mse.detach())
@@ -342,11 +338,10 @@ class ddpTrainer:
                     self.logger.info(f'Test batch [{bidx}/{len(self.test_dataloader)}]: freq loss: {soble_loss:.4f}, mse:{mse:.4f}, total loss:{loss:.4f}',gpu_rank=self.rank)
         # maxrel in certain rank
         maxrel = torch.stack(relative_loss_epoch)
-        maxrel2 = torch.stack(exclude_2x2_epoch)
-        maxrel4 = torch.stack(exclude_4x4_epoch)
-        maxrel6 = torch.stack(exclude_6x6_epoch)
+        
 
         # ssim in certain rank
+        avg_zncc   = torch.stack(ssim_epoch,dim=0)
         avg_ssim   = torch.stack(ssim_epoch,dim=0)
 
         L = torch.stack(L)
@@ -367,45 +362,39 @@ class ddpTrainer:
         val_epoch_mse = val_mse/self.world_size
 
         all_relative_loss = [torch.zeros_like(maxrel) for _ in range(self.world_size)]
-        all_relative_loss2 = [torch.zeros_like(maxrel2) for _ in range(self.world_size)]
-        all_relative_loss4 = [torch.zeros_like(maxrel4) for _ in range(self.world_size)]
-        all_relative_loss6 = [torch.zeros_like(maxrel6) for _ in range(self.world_size)]
         dist.all_gather(all_relative_loss, maxrel)
-        dist.all_gather(all_relative_loss2, maxrel2)
-        dist.all_gather(all_relative_loss4, maxrel4)
-        dist.all_gather(all_relative_loss6, maxrel6)
 
         if dist.get_rank() == 0:
             # Concatenate along the first dimension to get a single tensor with data from all ranks
             all_relative_loss = torch.concat(all_relative_loss, dim=0)  # Shape: (total_samples_across_all_ranks, 1)
-            all_relative_loss2 = torch.concat(all_relative_loss2, dim=0)
-            all_relative_loss4 = torch.concat(all_relative_loss4, dim=0)
-            all_relative_loss6 = torch.concat(all_relative_loss6, dim=0)
-            self.logger.info('total_samples_across_all_ranks',all_relative_loss.shape)
             # Calculate the median of the medians
             val_maxrel = torch.median(all_relative_loss)
-            val_maxrel2 = torch.median(all_relative_loss2)
-            val_maxrel4 = torch.median(all_relative_loss4)
-            val_maxrel6 = torch.median(all_relative_loss6)
         else:
-            val_maxrel,val_maxrel2,val_maxrel4,val_maxrel6 = None,None,None,None 
+            val_maxrel = None
+
+        dist.all_reduce(avg_zncc, op=dist.ReduceOp.SUM)
+        val_zncc = avg_zncc / dist.get_world_size()
+        val_zncc = val_zncc.mean(dim=0)
 
         dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
         val_ssim = avg_ssim / dist.get_world_size()
         val_ssim = val_ssim.mean(dim=0) 
-        maxrels = {
+
+        results = {
+            'val_loss': val_epoch_loss,
+            'val_feature':val_epoch_soble,
+            'val_mse':val_epoch_mse,
             'maxrel':val_maxrel,
-            'maxrel_exclude_2x2':val_maxrel2,
-            'maxrel_exclude_4x4':val_maxrel4,
-            'maxrel_exclude_6x6':val_maxrel6
+            'zncc': val_zncc,
+            'ssim': val_ssim
         }
 
-        return val_epoch_loss,val_epoch_soble,val_epoch_mse, maxrels,val_ssim
+        return results
     def run(self):
         stop_signal = torch.tensor([0], device=self.local_rank)
         for epoch in tqdm(range(self.config['model']['epochs']), disable=self.rank != 0):  # Disable tqdm progress bar except for rank 0
             epoch_loss,epoch_soble,epoch_mse = self.train()
-            val_epoch_loss,val_epoch_soble,val_epoch_mse, val_maxrels,val_ssim = self.test() #todo 
+            results = self.test() #todo 
             torch.cuda.empty_cache()  # Clear cache after training            
 
             # Update history on master process
@@ -414,14 +403,12 @@ class ddpTrainer:
                     'train_loss':epoch_loss.cpu().item(),
                     'train_feature':epoch_soble.cpu().item(),
                     'train_mse':epoch_mse.cpu().item(),
-                    'val_loss':val_epoch_loss.cpu().item(),
-                    'val_feature':val_epoch_soble.cpu().item(),
-                    'val_mse':val_epoch_mse.cpu().item(),
-                    'val_maxrel':val_maxrels['maxrel'].cpu().item(),
-                    'val_maxrel_exclude_2x2':val_maxrels['maxrel_exclude_2x2'].cpu().item(),
-                    'val_maxrel_exclude_4x4':val_maxrels['maxrel_exclude_4x4'].cpu().item(),
-                    'val_maxrel_exclude_6x6':val_maxrels['maxrel_exclude_6x6'].cpu().item(),
-                    'val_ssim': val_ssim.cpu().tolist()
+                    'val_loss':results['val_loss'].cpu().item(),
+                    'val_feature':results['val_feature'].cpu().item(),
+                    'val_mse':results['val_mse'].cpu().item(),
+                    'val_maxrel':results['maxrel'].cpu().item(),
+                    'val_zncc':results['zncc'].cpu().tolist(),
+                    'val_ssim': results['ssim'].cpu().tolist()
                 }
                 self.log_metrics(epoch, record_values)
             if self.scheduler:
@@ -435,9 +422,7 @@ class ddpTrainer:
                             f"val_feature:{record_values['val_feature']},"
                             f"val_mse:{record_values['val_mse']},"
                             f"val_maxrel:{record_values['val_maxrel']},"
-                            f"val_maxrel_exclude_2x2:{record_values['val_maxrel_exclude_2x2']},"
-                            f"val_maxrel_exclude_4x4:{record_values['val_maxrel_exclude_4x4']},"
-                            f"val_maxrel_exclude_6x6:{record_values['val_maxrel_exclude_6x6']},"
+                            f"val_zncc:{record_values['val_zncc']},"
                             f"val_ssim:{record_values['val_ssim']}")
         model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
         torch.save( {
