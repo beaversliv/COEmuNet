@@ -5,7 +5,7 @@ warnings.filterwarnings('error', category=RuntimeWarning)
 # torch related
 import torch
 from torch.utils.data import Dataset
-from utils.utils      import load_txt
+from utils.utils      import load_txt,load_json
 
 import logging
 import time
@@ -261,7 +261,7 @@ class ChunkLoadingDataset(Dataset):
             mini_batch_size (int): The size of the mini-batches for each loaded chunk.
             transform (callable, optional): Optional transform to be applied on a sample.
         """
-        self.file_list = load_txt(file_list_path)# List of chunked file paths (e.g., ['batch_0.hdf5', 'batch_1.hdf5', ...])
+        self.file_list = load_txt(file_list_path)[1:]# List of chunked file paths (e.g., ['batch_0.hdf5', 'batch_1.hdf5', ...])
         self.mini_batch_size = mini_batch_size
         # Store the number of samples in each file
 
@@ -298,7 +298,8 @@ class ChunkLoadingDataset(Dataset):
 
         input_tensor = torch.tensor(input_data, dtype=torch.float32)
         output_tensor = torch.tensor(output_data, dtype=torch.float32)
-        return input_tensor, output_tensor
+        index_range = (start_idx, end_idx)
+        return input_tensor, output_tensor,file_idx,index_range
     
 class MultiEpochsDataLoader(torch.utils.data.DataLoader):
 
@@ -330,3 +331,30 @@ class _RepeatSampler(object):
     def __iter__(self):
         while True:
             yield from iter(self.sampler)
+
+class MaxRelDataset(Dataset):
+    def __init__(self, file_list_path, transform=None):
+        """
+        Arguments:
+        file_paths ([str]): Paths to the hdf5 files.
+        transform (callable, optional): Optional transform to be applied on a sample.
+        """
+        self.file_paths = load_json(file_list_path)
+        self.transform = transform
+    
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self, idx):
+        # start timing
+       
+        # Load the specific data from the file
+        with h5.File(self.file_paths[idx], 'r') as hdf5_file:
+            x = np.array(hdf5_file['input'], dtype=np.float32)
+            y = np.array(hdf5_file['output'], dtype=np.float32)
+        if self.transform:
+            xt,yt = self.transform(x, y)
+        else: 
+            xt = x
+            yt = y
+        return xt, yt,self.file_paths[idx]

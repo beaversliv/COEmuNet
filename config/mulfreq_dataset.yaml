@@ -19,9 +19,8 @@ model:
   seed: 1234
   epochs: 500
   alpha: 0.8
-  beta: 0.2
   # pretrained_encoder: "/home/dp332/dp332/dc-su2/results/pretrained.pth"
-  resume_checkpoint: "/home/dp332/dp332/dc-su2/results/mulfreq/ro_200/ro_200.pth"
+  resume_checkpoint: "/home/dp332/dp332/dc-su2/results/mulfreq/ro_200_2/ro_200_2.pth"
 
 optimizer:
   type: "adam"

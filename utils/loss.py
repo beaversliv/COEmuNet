@@ -128,7 +128,7 @@ class EvaluationMetrics:
 
         maxrel_calculation = MaxRel(or_target,or_pred)
         maxrel_value = maxrel_calculation.maxrel(center_size=0)
-        return maxrel_value
+        return maxrel_value # maxrel per sample
     def calculate_zncc(self,target,pred):
         """
         Computes the Zero-Mean Normalized Cross-Correlation (ZNCC) between each pair of images in the batch
@@ -165,7 +165,8 @@ class EvaluationMetrics:
             zncc_values = torch.where(denominator == 0, torch.zeros_like(numerator), numerator / denominator)
             # Average ZNCC across the batch for the i-th image position and store it
             zncc_values_per_image[i] = torch.mean(zncc_values)
-        
+        # the mean accross 7 freq, returns a scalar    
+        zncc = torch.mean(zncc_values_per_image)
         return zncc_values_per_image
     
     def calculate_ssim(self,target,pred):
@@ -183,6 +184,8 @@ class EvaluationMetrics:
 
             # Average SSIM across the batch for this frequency
             ssim_scores[freq] = freq_ssim
+        # the mean accross 7 freq, returns a scalar    
+        ssim = torch.mean(ssim_scores)
         return ssim_scores
     def evaluate(self, target, output):
         """

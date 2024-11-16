@@ -1,4 +1,4 @@
-from ruamel.yaml import YAML
+# from ruamel.yaml import YAML
 import os
 import matplotlib.pyplot as plt
 import pickle
@@ -9,8 +9,9 @@ from collections import OrderedDict
 import socket 
 import torch.distributed      as dist
 import h5py as h5
+import json
 import datetime
-from utils.loss import single_maxrel
+from utils.loss import SingleMaxRel
 def check_file(file_path):
     return os.path.isfile(file_path)
 
@@ -21,17 +22,21 @@ def check_dir(file_dir):
     except Exception as e:
         print(f"Warning: Failed to create directory {file_dir}. {e}")
 
-def load_yaml(path):
-    with open(path, 'rb') as f:
-        yaml = YAML()
-        dt = yaml.load(f)
-        return dt
+# def load_yaml(path):
+#     with open(path, 'rb') as f:
+#         yaml = YAML()
+#         dt = yaml.load(f)
+#         return dt
 def load_txt(path):
     file_list = []
     with open(path,'r') as lines:
         for line in lines:
             file_list.append(line.strip())
     return file_list
+def load_json(json_file):
+    with open(json_file,'r') as file:
+        list_ = json.load(file)
+    return list_
 
 def save_pickle(store_dir, file):
     with open(store_dir, 'wb') as fo:
@@ -162,12 +167,14 @@ class HistoryShow:
         data   = load_pickle(pkl_file)
         pred   = data['or_preds']
         target = data['or_targets']
-        maxrel_0 = single_maxrel(target, pred, centre_size=0)
-        maxrel_2 = single_maxrel(target, pred, centre_size=2)
-        maxrel_4 = single_maxrel(target, pred, centre_size=4)
-        maxrel_6 = single_maxrel(target, pred, centre_size=6)
+        maxrel_calculation = SingleMaxRel(target,pred)
+        maxrel_0 = maxrel_calculation.single_maxrel(centre_size=0)
+        maxrel_2 = maxrel_calculation.single_maxrel(centre_size=2)
+        maxrel_4 = maxrel_calculation.single_maxrel(centre_size=4)
+        maxrel_6 = maxrel_calculation.single_maxrel(centre_size=6)
 
         for sample_idx in range(len(target)):
+            print(sample_idx)
             save_path = os.path.join(img_folder,f'img_{sample_idx}.png')
             if self.single:
                 self._sgl_imshow(target[sample_idx],pred[sample_idx],save_path)
@@ -184,6 +191,9 @@ class HistoryShow:
         val_feature = []
         val_mse = []
         val_maxrel = []
+        val_maxrel_2x2 = []
+        val_maxrel_4x4 = []
+        val_maxrel_6x6 = []
         val_ssim = []
         is_multiple_files = len(log_files) > 1
         for log_file in log_files:
@@ -235,6 +245,9 @@ class HistoryShow:
                 r"val_feature:\s*([\d\.e\-]+),\s*"
                 r"val_mse:\s*([\d\.e\-]+),\s*"
                 r"val_maxrel:\s*([\d\.e\-]+),\s*"
+                r"val_maxrel_exclude_2x2:\s*([\d\.e\-]+),\s*"
+                r"val_maxrel_exclude_4x4:\s*([\d\.e\-]+),\s*"
+                r"val_maxrel_exclude_6x6:\s*([\d\.e\-]+),\s*"
                 r"val_ssim:\s*\[(.*?)\]"
                 )
                 for match in pattern.finditer(training_messages):
@@ -253,18 +266,21 @@ class HistoryShow:
                     val_feature.append(float(match.group(6)))
                     val_mse.append(float(match.group(7)))
                     val_maxrel.append(float(match.group(8)))
+                    val_maxrel_2x2.append(float(match.group(9)))
+                    val_maxrel_4x4.append(float(match.group(10)))
+                    val_maxrel_6x6.append(float(match.group(11)))
                     # Parse the nested SSIM values
-                    ssim_values = match.group(9)
+                    ssim_values = match.group(12)
                     ssim_list = [float(ssim) for ssim in ssim_values.split(', ')]
                     val_ssim.append(ssim_list)
                 if is_multiple_files:
                     total_epochs = epochs[-1] + 1
         ssim_transposed = list(map(list, zip(*val_ssim)))
         
-        return epochs,train_loss,val_loss,val_maxrel,ssim_transposed
+        return epochs,train_loss,val_loss,val_maxrel,val_maxrel_2x2,val_maxrel_4x4,val_maxrel_6x6,ssim_transposed
     def history_show(self,log_files): 
         history_save_path = f'{self.save_dir}/history.png'
-        epochs,train_loss,val_loss,val_maxrel,ssim_transposed = self.read_training_message(log_files)
+        epochs,train_loss,val_loss,val_maxrel,val_maxrel_2x2,val_maxrel_4x4,val_maxrel_6x6,ssim_transposed = self.read_training_message(log_files)
 
         fig,axes = plt.subplots(1,3, figsize=(20,5))
         axes[0].plot(epochs,train_loss, label='train')
@@ -275,8 +291,12 @@ class HistoryShow:
         axes[0].set_ylabel('Feature loss + MSE loss')
         axes[0].grid(True)
 
-        axes[1].plot(epochs, val_maxrel)
+        axes[1].plot(epochs, val_maxrel,label='maxrel')
+        axes[1].plot(epochs, val_maxrel_2x2,label='maxrel exclude centre 2x2')
+        axes[1].plot(epochs, val_maxrel_4x4,label='maxrel exclude centre 4x4')
+        axes[1].plot(epochs, val_maxrel_6x6,label='maxrel exclude centre 6x6')
         axes[1].set_ylim(0,100)
+        axes[1].legend()
         axes[1].set_title('Val MaxRel History')
         axes[1].set_xlabel('epoch')
         axes[1].grid(True)
@@ -410,8 +430,9 @@ class Logging:
             with open(self.log_file, 'a') as f:  # a for append to the end of the file.
                 print(message, file=f)
 if __name__=='__main__':
-    
-    pickle_path = '/home/dp332/dp332/dc-su2/results/mulfreq/ro_200_2/pickl.pkl'
-    save_dir    = '/home/dp332/dp332/dc-su2/results/mulfreq/ro_200_2/'
+    log_files = ['/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq_del_later/ro_200_final.txt']
+    pickle_path = '/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq_del_later/pickl.pkl'
+    save_dir    = '/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq_del_later/'
     history_plot = HistoryShow(save_dir,single=False)
+    history_plot.history_show(log_files)
     history_plot.img_plt(pickle_path)

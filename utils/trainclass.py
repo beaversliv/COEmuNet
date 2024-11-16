@@ -99,28 +99,26 @@ class Trainer:
             average_metrics['ssim'].append(average_ssim)
 
         return average_metrics
-
     def eval(self):
         self.model.eval()
-        maxrel_data = []
         results = {
             'maxrel': [],
             'zncc' : [[] for _ in range(7)],
             'ssim': [[] for _ in range(7)]
         }
         matrics_calculation = EvaluationMetrics(postprocess_fn=self.postProcessing)
-        for bidx, (data, target,file_idx, index_range) in enumerate(self.test_dataloader):
+        for bidx, (data, target) in enumerate(self.test_dataloader):
             data, target = Variable(data.squeeze(0)).to(self.device), Variable(target.squeeze(0)).to(self.device)
             with torch.no_grad():
                 pred = self.model(data)
-            self.logger.info(f"Loaded batch from file number: {file_idx.item()}, index range in file: {index_range}")
+
             metrics = matrics_calculation.evaluate(target, pred)
             results['maxrel'].append(metrics['maxrel'].item())
             for i in range(7):
                 results['zncc'][i].append(metrics['zncc'][i].item())
                 results['ssim'][i].append(metrics['ssim'][i].item())
 
-            self.logger.info(f"Metrics for batch {bidx}: {metrics}")
+            # self.logger.info(f"Metrics for batch {bidx}: {metrics}")
         average_metrics = self.get_average_metrics(results)
         return average_metrics
 
@@ -281,32 +279,6 @@ class ddpTrainer:
         epoch_soble = total_soble / len(self.train_dataloader)
         epoch_mse = total_mse / len(self.train_dataloader)
         return epoch_loss,epoch_soble,epoch_mse
-
-    def record_prediction(self, pred, targets):
-        '''
-        pred and target are in tensors
-        '''
-        original_target = self.postProcessing(targets)
-        original_pred = self.postProcessing(pred)
-
-        # relative_loss = MaxRel(original_target, original_pred)
-        maxrel_calculation = MaxRel(original_target,original_pred)
-        relative_loss = maxrel_calculation.maxrel(center_size=0)
-        exclude_maxrel_error_2x2 = maxrel_calculation.maxrel(center_size=2)
-        exclude_maxrel_error_4x4 = maxrel_calculation.maxrel(center_size=4)
-        exclude_maxrel_error_6x6 = maxrel_calculation.maxrel(center_size=6)
-
-        ssim_per_batch = calculate_ssim_batch(targets, pred)
-
-        record_values = {
-            'maxrel':relative_loss,
-            'maxrel_exclude_2x2':exclude_maxrel_error_2x2,
-            'maxrel_exclude_4x4':exclude_maxrel_error_4x4,
-            'maxrel_exclude_6x6':exclude_maxrel_error_6x6,
-            'ssim': ssim_per_batch
-        }
-        return record_values
-
     def test(self):
         self.ddp_model.eval()
       
@@ -338,12 +310,9 @@ class ddpTrainer:
                     self.logger.info(f'Test batch [{bidx}/{len(self.test_dataloader)}]: freq loss: {soble_loss:.4f}, mse:{mse:.4f}, total loss:{loss:.4f}',gpu_rank=self.rank)
         # maxrel in certain rank
         maxrel = torch.stack(relative_loss_epoch)
-        
-
         # ssim in certain rank
-        avg_zncc   = torch.stack(ssim_epoch,dim=0)
-        avg_ssim   = torch.stack(ssim_epoch,dim=0)
-
+        zncc   = torch.stack(zncc_epoch)
+        ssim   = torch.stack(ssim_epoch)
         L = torch.stack(L)
         val_loss = torch.mean(L)
         SL = torch.stack(SL)
@@ -363,22 +332,33 @@ class ddpTrainer:
 
         all_relative_loss = [torch.zeros_like(maxrel) for _ in range(self.world_size)]
         dist.all_gather(all_relative_loss, maxrel)
+        all_zncc = [torch.zeros_like(zncc) for _ in range(self.world_size)]
+        dist.all_gather(all_zncc, zncc)
+        all_ssim = [torch.zeros_like(ssim) for _ in range(self.world_size)]
+        dist.all_gather(all_ssim, ssim)
 
         if dist.get_rank() == 0:
             # Concatenate along the first dimension to get a single tensor with data from all ranks
             all_relative_loss = torch.concat(all_relative_loss, dim=0)  # Shape: (total_samples_across_all_ranks, 1)
             # Calculate the median of the medians
             val_maxrel = torch.median(all_relative_loss)
+            all_zncc = torch.concat(all_zncc, dim=0) 
+            all_ssim = torch.concat(all_ssim, dim=0) 
+
+            val_zncc = torch.mean(all_zncc)
+            val_ssim = torch.mean(all_ssim)
         else:
             val_maxrel = None
+            val_zncc,val_ssim =None,None
+        # avg_zncc   = torch.stack(ssim_epoch,dim=0)
+        # avg_ssim   = torch.stack(ssim_epoch,dim=0)
+        # dist.all_reduce(avg_zncc, op=dist.ReduceOp.SUM)
+        # val_zncc = avg_zncc / dist.get_world_size()
+        # val_zncc = val_zncc.mean(dim=0)
 
-        dist.all_reduce(avg_zncc, op=dist.ReduceOp.SUM)
-        val_zncc = avg_zncc / dist.get_world_size()
-        val_zncc = val_zncc.mean(dim=0)
-
-        dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
-        val_ssim = avg_ssim / dist.get_world_size()
-        val_ssim = val_ssim.mean(dim=0) 
+        # dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
+        # val_ssim = avg_ssim / dist.get_world_size()
+        # val_ssim = val_ssim.mean(dim=0) 
 
         results = {
             'val_loss': val_epoch_loss,
@@ -490,3 +470,25 @@ class ddpTrainer:
             y = y*median + min_
         y = torch.exp(y)
         return y
+
+    def per_sample_eval(self):
+        self.ddp_model.eval()
+
+        maxrel_data = []
+        
+        matrics_calculation = EvaluationMetrics(postprocess_fn=self.postProcessing)
+        for bidx, (data, target,files) in enumerate(self.test_dataloader):
+            data, target = Variable(data.squeeze(0)).to(self.local_rank), Variable(target.squeeze(0)).to(self.local_rank)
+            with torch.no_grad():
+                pred = self.ddp_model(data)
+            if bidx % 50 == 0:
+                self.logger.info(f'Test batch [{bidx}/{len(self.train_dataloader)}]')
+
+            maxrels_batch = matrics_calculation.calculate_maxrel(target, pred)
+            for i, (maxrel, file) in enumerate(zip(maxrels_batch, files)):
+                maxrel_data.append({
+                    'maxrel': maxrel.item(),  # Convert tensor to a Python float
+                    'file': file  # Store the corresponding file information
+                })
+
+        return maxrel_data
