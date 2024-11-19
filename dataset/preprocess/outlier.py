@@ -109,14 +109,12 @@ class PathFind:
         return rotation_files
 
 def outlier_detection(rotation_file,dataset_name):
-    with h5.File(rotation_file,'r') as f:
-        if dataset_name == 'mulfreq':
-            y = np.array(f['I'][:,:,15:16],dtype=np.float32) # (64,64,31)
-        else:
-            y = np.array(f['I'],dtype=np.float32) # (64,64,1)
-    y[y == 0.0] = np.min(y[y != 0.0])
-    y = np.log(y)
-    return np.min(y) <= -50
+    with h5.File(outlier,'r') as file:
+        v_z = np.array(file['velocity_z'])
+        v_min = np.min(v_z)
+        v_max = np.max(v_z)
+        diff  = v_max - v_min
+    return diff > 1E+05
 
 def outlier_main(dataset_name,num_rotations,logger,non_outlier_file_path):
     # Initialize MPI
