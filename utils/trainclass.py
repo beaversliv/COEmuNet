@@ -261,7 +261,7 @@ class ddpTrainer:
         self.ddp_model.train()
         
         for bidx, samples in enumerate(self.train_dataloader):
-            data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank)
+            data, target = samples[0].squeeze(0).to(self.local_rank), samples[1]..view(20, 7, 64, 64).to(self.local_rank)
             self.optimizer.zero_grad()
             output = self.ddp_model(data)
             soble_loss,mse = self.loss_object(target, output)

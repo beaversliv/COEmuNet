@@ -60,9 +60,9 @@ def main(config):
     test_dataloader = MultiEpochsDataLoader(test_dataset, 1, sampler=sampler_test,num_workers=num_workers, shuffle=False)
     torch.cuda.set_device(local_rank)
     if config['dataset']['name'] == 'mulfreq':
-        model = Net3D(7,config['dataset']['grid']).to(local_rank)
+        model = Net(config['dataset']['grid'],in_channels=64,out_channels=7).to(local_rank)
     else:
-        model = Net(config['dataset']['grid']).to(local_rank)
+        model = Net(config['dataset']['grid'],in_channels=64,out_channels=1).to(local_rank)
 
     if local_rank == 0:
         # Count trainable parameters

@@ -130,7 +130,7 @@ class Latent(nn.Module):
         return x
 
 class Net(nn.Module):
-    def __init__(self,model_grid=64):
+    def __init__(self,model_grid=64,in_channels=64,out_channels=1):
         super(Net, self).__init__()
         self.model_grid = model_grid
         self.encoder0 = Encoder(1)
@@ -146,7 +146,7 @@ class Net(nn.Module):
         elif model_grid == 128:
             self.to_lat = nn.Linear(32*8*8*8*3,16*16*16)
             self.to_dec = nn.Linear(16*16*16,64*16*16)
-        self.decoder= Decoder(in_channels=64, out_channels=1)
+        self.decoder= Decoder(in_channels, out_channels)
         
         
     def forward(self, x):
@@ -201,13 +201,13 @@ class Decoder3D(nn.Module):
             in_channels = int(in_channels/2)
         # Final convolution to get the desired number of output channels (1 in this case)
         self.layers.append(nn.Conv3d(in_channels, out_channels, kernel_size=(1,3,3), padding=(0,1,1)))
-        # self.layers.append(nn.Conv3d(out_channels, out_channels, kernel_size=(1,3,3), padding=(0,1,1)))
         self.layers.append(nn.Tanh())
 
     def forward(self, x):
         for idx in range(len(self.layers)):
             x = self.layers[idx](x)
         # print(x.shape)
+        # x = x.mean(dim=1, keepdim=True)
         return x
 
 class Net3D(nn.Module):

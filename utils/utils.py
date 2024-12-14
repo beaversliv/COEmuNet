@@ -47,8 +47,8 @@ def load_pickle(file, encoding="bytes"):
         return pickle.load(fo, encoding=encoding)
 
 def load_log_files(log_file):
-        with open(log_file, 'r') as file:
-            return file.read()
+    with open(log_file, 'r') as file:
+        return file.read()
         
 def load_statistics(statistics_path,statistics_values):
     statistics = {}
@@ -116,8 +116,18 @@ class LoadCheckPoint():
         state = self.get_state_dict(state)
         try:
             if self.stage==1:
-                self.logger.info(f"* only load encoder")
-                self.learning_model.encoder_state_dict = {k: v for k, v in state.items() if k.startswith('encoder')}
+                # self.logger.info(f"* only load encoder")
+                # self.learning_model.encoder_state_dict = {k: v for k, v in state.items() if k.startswith('encoder')}
+                self.logger.info(f"load pre-trained autoencoder but ingore the last layer")
+                new_state_dict1 = self.learning_model.state_dict()
+
+                # Update the state dict while ignoring the mismatch in the last layer
+                for key in state:
+                    if key in new_state_dict1 and state[key].shape == new_state_dict1[key].shape:
+                        new_state_dict1[key] = state[key]
+
+                # Load the updated state dict into the new model
+                self.learning_model.load_state_dict(new_state_dict1)
             else:
                 self.learning_model.load_state_dict(state, strict=True)
         except RuntimeError as e:
@@ -155,10 +165,9 @@ class LoadCheckPoint():
 
 
 class HistoryShow:
-    def __init__(self,save_dir,single=True):
+    def __init__(self,save_dir):
   
         self.save_dir = save_dir
-        self.single   = single
 
     def img_plt(self,pkl_file):
         img_folder = os.path.join(self.save_dir,'img/')
@@ -191,98 +200,54 @@ class HistoryShow:
         val_feature = []
         val_mse = []
         val_maxrel = []
-        val_maxrel_2x2 = []
-        val_maxrel_4x4 = []
-        val_maxrel_6x6 = []
+        val_zncc = []
         val_ssim = []
         is_multiple_files = len(log_files) > 1
         for log_file in log_files:
             training_messages = load_log_files(log_file)
-            if self.single:
-                pattern = re.compile(
-                r"epoch:\s*(\d+),\s*"
-                r"train_loss:\s*([\d\.e\-]+),\s*"
-                r"train_feature:\s*([\d\.e\-]+),\s*"
-                r"train_mse:\s*([\d\.e\-]+),\s*"
-                r"train_maxrel:\s*([\d\.e\-]+),\s*"
-                r"train_ssim:\s*\[([\d\.,\s\-e]+)\],\s*"
-                r"val_loss:\s*([\d\.e\-]+),\s*"
-                r"val_feature:\s*([\d\.e\-]+),\s*"
-                r"val_mse:\s*([\d\.e\-]+),\s*"
-                r"val_maxrel:\s*([\d\.e\-]+),\s*"
-                r"val_ssim:\s*\[([\d\.,\s\-e]+)\]"
-                )
-                for match in pattern.finditer(training_messages):
-                    epoch_in_file = int(match.group(1))
-                    if is_multiple_files:
-                        cumulative_epoch = epoch_in_file + total_epochs
-                    else:
-                        cumulative_epoch = epoch_in_file
-                    # Adjust epoch to be cumulative
-                    epochs.append(cumulative_epoch)
+            
+            pattern = re.compile(
+                r"epoch:\s*(\d+),\s*?"
+                r"train_loss:\s*?([\d\.e\-]+),\s*?"
+                r"train_feature:\s*?([\d\.e\-]+),\s*?"
+                r"train_mse:\s*?([\d\.e\-]+),\s*?"
+                r"val_loss:\s*?([\d\.e\-]+),\s*?"
+                r"val_feature:\s*?([\d\.e\-]+),\s*?"
+                r"val_mse:\s*?([\d\.e\-]+),\s*?"
+                r"val_maxrel:\s*?([\d\.e\-]+),\s*?"
+                r"val_zncc:\s*?([\d\.e\-]+),\s*?"
+                r"val_ssim:\s*?([\d\.e\-]+)"
+            )
 
-                    train_loss.append(float(match.group(2)))
-                    train_feature.append(float(match.group(3)))
-                    train_mse.append(float(match.group(4)))
-                    val_loss.append(float(match.group(7)))
-                    val_feature.append(float(match.group(8)))
-                    val_mse.append(float(match.group(9)))
-                    val_maxrel.append(float(match.group(10)))
-                    # Parse the nested SSIM values
-                    ssim_values = match.group(11)
-                    ssim_list = [float(ssim) for ssim in ssim_values.split(', ')]
-                    val_ssim.append(ssim_list)
+            for match in pattern.finditer(training_messages):
+                epoch_in_file = int(match.group(1))
                 if is_multiple_files:
-                    total_epochs = epochs[-1] + 1
-
-            else:
-                pattern = re.compile(
-                r"epoch:\s*(\d+),\s*"
-                r"train_loss:\s*([\d\.e\-]+),\s*"
-                r"train_feature:\s*([\d\.e\-]+),\s*"
-                r"train_mse:\s*([\d\.e\-]+),\s*"
-                r"val_loss:\s*([\d\.e\-]+),\s*"
-                r"val_feature:\s*([\d\.e\-]+),\s*"
-                r"val_mse:\s*([\d\.e\-]+),\s*"
-                r"val_maxrel:\s*([\d\.e\-]+),\s*"
-                r"val_maxrel_exclude_2x2:\s*([\d\.e\-]+),\s*"
-                r"val_maxrel_exclude_4x4:\s*([\d\.e\-]+),\s*"
-                r"val_maxrel_exclude_6x6:\s*([\d\.e\-]+),\s*"
-                r"val_ssim:\s*\[(.*?)\]"
-                )
-                for match in pattern.finditer(training_messages):
-                    epoch_in_file = int(match.group(1))
-                    if is_multiple_files:
-                        cumulative_epoch = epoch_in_file + total_epochs
-                    else:
-                        cumulative_epoch = epoch_in_file
-                    # Adjust epoch to be cumulative
-                    epochs.append(cumulative_epoch)
-
-                    train_loss.append(float(match.group(2)))
-                    train_feature.append(float(match.group(3)))
-                    train_mse.append(float(match.group(4)))
-                    val_loss.append(float(match.group(5)))
-                    val_feature.append(float(match.group(6)))
-                    val_mse.append(float(match.group(7)))
-                    val_maxrel.append(float(match.group(8)))
-                    val_maxrel_2x2.append(float(match.group(9)))
-                    val_maxrel_4x4.append(float(match.group(10)))
-                    val_maxrel_6x6.append(float(match.group(11)))
-                    # Parse the nested SSIM values
-                    ssim_values = match.group(12)
-                    ssim_list = [float(ssim) for ssim in ssim_values.split(', ')]
-                    val_ssim.append(ssim_list)
-                if is_multiple_files:
-                    total_epochs = epochs[-1] + 1
-        ssim_transposed = list(map(list, zip(*val_ssim)))
-        
-        return epochs,train_loss,val_loss,val_maxrel,val_maxrel_2x2,val_maxrel_4x4,val_maxrel_6x6,ssim_transposed
+                    cumulative_epoch = epoch_in_file + total_epochs
+                else:
+                    cumulative_epoch = epoch_in_file
+                # Adjust epoch to be cumulative
+                epochs.append(cumulative_epoch)
+                train_loss.append(float(match.group(2)))
+                train_feature.append(float(match.group(3)))
+                train_mse.append(float(match.group(4)))
+                val_loss.append(float(match.group(5)))
+                val_feature.append(float(match.group(6)))
+                val_mse.append(float(match.group(7)))
+                val_maxrel.append(float(match.group(8)))
+                val_zncc.append(float(match.group(9)))
+                # Parse the nested SSIM values
+                val_ssim.append(float(match.group(10)))
+                # ssim_values = match.group(10)
+                # ssim_list = [float(ssim) for ssim in ssim_values.split(', ')]
+                # val_ssim.append(ssim_list)
+            if is_multiple_files:
+                total_epochs = epochs[-1] + 1
+                # ssim_transposed = list(map(list, zip(*val_ssim)))
+        return epochs,train_loss,val_loss,val_maxrel,val_zncc,val_ssim
     def history_show(self,log_files): 
         history_save_path = f'{self.save_dir}/history.png'
-        epochs,train_loss,val_loss,val_maxrel,val_maxrel_2x2,val_maxrel_4x4,val_maxrel_6x6,ssim_transposed = self.read_training_message(log_files)
-
-        fig,axes = plt.subplots(1,3, figsize=(20,5))
+        epochs,train_loss,val_loss,val_maxrel,val_zncc,val_ssim = self.read_training_message(log_files)
+        fig,axes = plt.subplots(1,4, figsize=(16,4))
         axes[0].plot(epochs,train_loss, label='train')
         axes[0].plot(epochs,val_loss,label='val')
         axes[0].legend()
@@ -291,21 +256,23 @@ class HistoryShow:
         axes[0].set_ylabel('Feature loss + MSE loss')
         axes[0].grid(True)
 
-        axes[1].plot(epochs, val_maxrel,label='maxrel')
-        axes[1].plot(epochs, val_maxrel_2x2,label='maxrel exclude centre 2x2')
-        axes[1].plot(epochs, val_maxrel_4x4,label='maxrel exclude centre 4x4')
-        axes[1].plot(epochs, val_maxrel_6x6,label='maxrel exclude centre 6x6')
+        axes[1].plot(epochs, val_maxrel)
         axes[1].set_ylim(0,100)
-        axes[1].legend()
         axes[1].set_title('Val MaxRel History')
         axes[1].set_xlabel('epoch')
         axes[1].grid(True)
-        num_freqs = 7
-        for freq_idx, freq_ssim in enumerate(ssim_transposed):
-            plt.plot(epochs, freq_ssim, label=f'Frequency {freq_idx}')
-        axes[2].set_title('Val SSIM History')
+
+        axes[2].plot(epochs,val_zncc)
+        axes[2].set_title('Val ZNCC History')
         axes[2].set_xlabel('epoch')
         axes[2].grid(True)
+
+        axes[3].plot(epochs,val_ssim)
+        axes[3].set_title('Val SSIM History')
+        axes[3].set_xlabel('epoch')
+        axes[3].grid(True)
+        plt.tight_layout(pad=1.0)  # Adjust padding if necessary
+        plt.subplots_adjust(left=0.05, right=0.95)
         plt.savefig(history_save_path)
 
     def _sgl_imshow(self,target,pred,save_path):
@@ -429,10 +396,47 @@ class Logging:
 
             with open(self.log_file, 'a') as f:  # a for append to the end of the file.
                 print(message, file=f)
-if __name__=='__main__':
-    log_files = ['/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq_del_later/ro_200_final.txt']
-    pickle_path = '/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq_del_later/pickl.pkl'
-    save_dir    = '/home/dp332/dp332/dc-su2/results/mulfreq/mulfreq_del_later/'
-    history_plot = HistoryShow(save_dir,single=False)
-    history_plot.history_show(log_files)
-    history_plot.img_plt(pickle_path)
+def mulfreq_imshow(target,pred,path):
+        '''
+        input: single paried target and pred, in original space
+        '''
+        target = target.reshape(7,64,64)
+        pred   = pred.reshape(7,64,64)
+
+        maxrel_0 = np.abs(target - pred) / np.max(target,axis=0,keepdims=True) * 100
+
+        lg_target = np.log(target)
+        lg_pred   = np.log(pred)
+
+        plt.rc('axes', titlesize=13)  # Title font size
+        plt.rc('axes', labelsize=13)  # Axis label font size
+        plt.rc('xtick', labelsize=8)  # X-tick font size
+        plt.rc('ytick', labelsize=8)  # Y-tick font size
+
+        rows = 3
+        colms = 7
+        fig,axes = plt.subplots(rows,colms,figsize=(25,10))
+        for colm in range(colms):
+            img1 = axes[0,colm].imshow(lg_target[colm],vmin=np.min(lg_target[colm]), vmax=np.max(lg_target[colm]))
+            axes[0,colm].set_title(rf"frequency $\nu_{{{colm + 13}}}$")
+            
+            img2 = axes[1,colm].imshow(lg_pred[colm],vmin=np.min(lg_target[colm]), vmax=np.max(lg_target[colm]))
+            img3 = axes[2,colm].imshow(maxrel_0[colm],vmin=np.min(maxrel_0[colm]), vmax=np.max(maxrel_0[colm]),cmap='coolwarm')
+            # axes[2, colm].text(
+            #     0.5, 1.05,  # Adjust position
+            #     f'min: {np.min(maxrel_0[colm]):.2f}, max: {np.max(maxrel_0[colm]):.2f}',  # Format min/max
+            #     color='black', fontsize=10, ha='center', va='bottom',  # Center the text
+            #     transform=axes[2, colm].transAxes  # Set relative to the axis
+            # )
+
+            fig.colorbar(img1, ax=axes[0, colm], orientation='vertical', fraction=0.05, pad=0.04)
+            fig.colorbar(img2, ax=axes[1, colm], orientation='vertical', fraction=0.05, pad=0.04)
+            fig.colorbar(img3, ax=axes[2, colm], orientation='vertical', fraction=0.05, pad=0.04)
+        # fig.suptitle(f'sample has maxrel {np.mean(maxrel_0)}%')
+        axes[0,0].set_ylabel('target')
+        axes[1,0].set_ylabel('pred')
+        axes[2,0].set_ylabel('maxrel(%)')
+        # plt.subplots_adjust(wspace=0.1, hspace=0.1)  # Reduce space between subplots
+        plt.tight_layout(pad=0.1)
+   
+        plt.savefig(path)
