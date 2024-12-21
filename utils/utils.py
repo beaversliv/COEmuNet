@@ -88,9 +88,10 @@ def cleanup():
     dist.destroy_process_group()
 
 class LoadCheckPoint():
-    def __init__(self,learning_model,optimizer,file_path,stage,logger,local_rank,ddp_on=True):
+    def __init__(self,learning_model,optimizer,scheduler,file_path,stage,logger,local_rank,ddp_on=True):
         self.learning_model = learning_model
         self.optimizer      = optimizer
+        self.scheduler      = scheduler
         self.file_path      = file_path
         self.stage          = stage
         self.logger         = logger
@@ -116,18 +117,18 @@ class LoadCheckPoint():
         state = self.get_state_dict(state)
         try:
             if self.stage==1:
-                # self.logger.info(f"* only load encoder")
-                # self.learning_model.encoder_state_dict = {k: v for k, v in state.items() if k.startswith('encoder')}
-                self.logger.info(f"load pre-trained autoencoder but ingore the last layer")
-                new_state_dict1 = self.learning_model.state_dict()
+                self.logger.info(f"* only load encoder")
+                self.learning_model.encoder_state_dict = {k: v for k, v in state.items() if k.startswith('encoder')}
+                # self.logger.info(f"load pre-trained autoencoder but ingore the last layer")
+                # new_state_dict1 = self.learning_model.state_dict()
 
-                # Update the state dict while ignoring the mismatch in the last layer
-                for key in state:
-                    if key in new_state_dict1 and state[key].shape == new_state_dict1[key].shape:
-                        new_state_dict1[key] = state[key]
+                # # Update the state dict while ignoring the mismatch in the last layer
+                # for key in state:
+                #     if key in new_state_dict1 and state[key].shape == new_state_dict1[key].shape:
+                #         new_state_dict1[key] = state[key]
 
-                # Load the updated state dict into the new model
-                self.learning_model.load_state_dict(new_state_dict1)
+                # # Load the updated state dict into the new model
+                # self.learning_model.load_state_dict(new_state_dict1)
             else:
                 self.learning_model.load_state_dict(state, strict=True)
         except RuntimeError as e:
@@ -157,6 +158,8 @@ class LoadCheckPoint():
                     if self.optimizer is not None and 'optimizer_state_dict' in checkpoint:
                         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                         self.logger.info(f'=> loaded optimizer')
+                    if self.scheduler is not None and 'optimizer_state_dict' in checkpoint:
+                        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 self.logger.info(f"=> loaded checkpoint '{self.file_path}' (trained {checkpoint['epoch']}+1 epochs)")
         else:
             info = f"=> no checkpoint found at '{self.file_path}'"

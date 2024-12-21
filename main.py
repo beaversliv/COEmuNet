@@ -77,6 +77,7 @@ def main(config):
     checkpoint_loading = LoadCheckPoint(
         learning_model=model,
         optimizer=None,
+        scheduler=None,
         file_path=file_path,
         stage=config['model']['stage'],
         logger=logger,
@@ -89,17 +90,19 @@ def main(config):
 
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
+    scheduler = StepLR(optimizer,step_size=40,gamma=0.1)
 
     checkpoint_loading.optimizer = optimizer
+    checkpoint_loading.scheduler = scheduler
     checkpoint_loading.load_checkpoint(model_only=False)
         
     # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)
     # scheduler = CyclicLR(optimizer,base_lr=1e-3,max_lr=0.1,step_size_up=100,mode='triangular',cycle_momentum=False)
-    scheduler = StepLR(optimizer,step_size=20,gamma=0.1)
+    # scheduler = StepLR(optimizer,step_size=30,gamma=0.1)
     loss_object = FreqMse(alpha=config['model']['alpha'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler=None)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler=scheduler)
 
     start = time.time()
     if rank == 0:

@@ -84,12 +84,21 @@ class Decoder(nn.Module):
             self.layers.append(nn.Conv2d(in_channels, int(in_channels / 2), kernel_size=3, stride=1,padding=1))
             self.layers.append(nn.BatchNorm2d(int(in_channels / 2)))
             self.layers.append(nn.ReLU())
+
+            self.layers.append(nn.Conv2d(int(in_channels / 2), int(in_channels / 2), kernel_size=3, stride=1,padding=1))
+            self.layers.append(nn.BatchNorm2d(int(in_channels / 2)))
+            self.layers.append(nn.ReLU())
+
+            self.layers.append(nn.Conv2d(int(in_channels / 2), int(in_channels / 2), kernel_size=3, stride=1,padding=1))
+            self.layers.append(nn.BatchNorm2d(int(in_channels / 2)))
+            self.layers.append(nn.ReLU())
+
             self.layers.append(nn.Upsample(scale_factor=2, mode='nearest'))  # Upsampling
             in_channels = int(in_channels/2)
 
         # Final convolution to get the desired number of output channels (1 in this case)
         self.layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
-
+        self.layers.append(nn.Tanh())
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
@@ -201,7 +210,7 @@ class Decoder3D(nn.Module):
             in_channels = int(in_channels/2)
         # Final convolution to get the desired number of output channels (1 in this case)
         self.layers.append(nn.Conv3d(in_channels, out_channels, kernel_size=(1,3,3), padding=(0,1,1)))
-        self.layers.append(nn.Tanh())
+        # self.layers.append(nn.Tanh())
 
     def forward(self, x):
         for idx in range(len(self.layers)):

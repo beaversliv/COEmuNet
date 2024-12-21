@@ -261,7 +261,7 @@ class ChunkLoadingDataset(Dataset):
             mini_batch_size (int): The size of the mini-batches for each loaded chunk.
             transform (callable, optional): Optional transform to be applied on a sample.
         """
-        self.file_list = load_txt(file_list_path)[1:]# List of chunked file paths (e.g., ['batch_0.hdf5', 'batch_1.hdf5', ...])
+        self.file_list = load_txt(file_list_path)# List of chunked file paths (e.g., ['batch_0.hdf5', 'batch_1.hdf5', ...])
         self.mini_batch_size = mini_batch_size
         # Store the number of samples in each file
 
