@@ -90,9 +90,27 @@ def main(config):
 
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    scheduler = StepLR(optimizer,step_size=40,gamma=0.1)
-
     checkpoint_loading.optimizer = optimizer
+
+    if not config['use_scheduler']:
+        scheduler = None
+    else:
+        scheduler_config = config.get('scheduler', None)
+
+        if scheduler_config:
+            selected_type = args.scheduler_type or config.get('scheduler_type', None)  # Use `args.scheduler_type` if dynamic selection
+            if selected_type is None:
+                raise ValueError("Scheduler type must be specified in 'scheduler_type' or passed as an argument.")
+            scheduler = None
+            scheduler_type = scheduler_config['type']
+            scheduler_params = scheduler_config['params']
+            scheduler = getattr(torch.optim.lr_scheduler, scheduler_type)(optimizer, **scheduler_params)
+            
+            # Raise an error if no matching scheduler type is found
+            if scheduler is None:
+                raise ValueError(f"Scheduler type {selected_type} not found in the config.")
+        else:
+            raise ValueError("Scheduler configuration is missing in the config file.")
     checkpoint_loading.scheduler = scheduler
     checkpoint_loading.load_checkpoint(model_only=False)
         
@@ -102,7 +120,7 @@ def main(config):
     # scheduler = StepLR(optimizer,step_size=30,gamma=0.1)
     loss_object = FreqMse(alpha=config['model']['alpha'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler=scheduler)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler)
 
     start = time.time()
     if rank == 0:

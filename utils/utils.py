@@ -158,8 +158,13 @@ class LoadCheckPoint():
                     if self.optimizer is not None and 'optimizer_state_dict' in checkpoint:
                         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                         self.logger.info(f'=> loaded optimizer')
-                    if self.scheduler is not None and 'optimizer_state_dict' in checkpoint:
-                        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+                    if self.scheduler is not None:
+                        if 'scheduler_state_dict' in checkpoint:
+                            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                            self.logger.info("=> Scheduler state loaded from checkpoint.")
+                        else:
+                            self.logger.info("=> No scheduler state found in checkpoint. Scheduler initialized from scratch.")
                 self.logger.info(f"=> loaded checkpoint '{self.file_path}' (trained {checkpoint['epoch']}+1 epochs)")
         else:
             info = f"=> no checkpoint found at '{self.file_path}'"
