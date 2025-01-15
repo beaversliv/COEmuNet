@@ -60,7 +60,7 @@ def main(config):
     test_dataloader = MultiEpochsDataLoader(test_dataset, 1, sampler=sampler_test,num_workers=num_workers, shuffle=False)
     torch.cuda.set_device(local_rank)
     if config['dataset']['name'] == 'mulfreq':
-        model = Net(config['dataset']['grid'],in_channels=64,out_channels=7).to(local_rank)
+        model = Net3D(7,config['dataset']['grid']).to(local_rank)
     else:
         model = Net(config['dataset']['grid'],in_channels=64,out_channels=1).to(local_rank)
 
@@ -72,25 +72,25 @@ def main(config):
         logger.info(f"Trainable parameters: {trainable_params}")
 
     
-    file_path = config['model'].get('resume_checkpoint',None)
-    # load checkpoint that is unwrapped with ddp, so no module.
-    checkpoint_loading = LoadCheckPoint(
-        learning_model=model,
-        optimizer=None,
-        scheduler=None,
-        file_path=file_path,
-        stage=config['model']['stage'],
-        logger=logger,
-        local_rank=f'cuda:{local_rank}',
-        ddp_on=False
-    )
-    checkpoint_loading.load_checkpoint(model_only=True)
+    # file_path = config['model'].get('resume_checkpoint',None)
+    # # load checkpoint that is unwrapped with ddp, so no module.
+    # checkpoint_loading = LoadCheckPoint(
+    #     learning_model=model,
+    #     optimizer=None,
+    #     scheduler=None,
+    #     file_path=file_path,
+    #     stage=config['model']['stage'],
+    #     logger=logger,
+    #     local_rank=f'cuda:{local_rank}',
+    #     ddp_on=False
+    # )
+    # checkpoint_loading.load_checkpoint(model_only=True)
     # Wrap the model with DDP
     ddp_model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    checkpoint_loading.optimizer = optimizer
+    # checkpoint_loading.optimizer = optimizer
 
     if not config['use_scheduler']:
         scheduler = None
@@ -111,8 +111,8 @@ def main(config):
                 raise ValueError(f"Scheduler type {selected_type} not found in the config.")
         else:
             raise ValueError("Scheduler configuration is missing in the config file.")
-    checkpoint_loading.scheduler = scheduler
-    checkpoint_loading.load_checkpoint(model_only=False)
+    # checkpoint_loading.scheduler = scheduler
+    # checkpoint_loading.load_checkpoint(model_only=False)
         
     # scheduler = CosineAnnealingLR(optimizer, T_max=25, eta_min=1e-7)
     # scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=0)

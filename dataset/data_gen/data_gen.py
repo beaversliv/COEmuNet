@@ -12,7 +12,6 @@ from p3droslo.haar        import Haar
 from p3droslo.utils       import planck  # CMB, big bang background
 
 from mpi4py               import MPI
-from astropy              import constants
 from torch.profiler       import profile, record_function, ProfilerActivity
 
 from astropy              import constants

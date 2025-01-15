@@ -261,8 +261,8 @@ class ddpTrainer:
         self.ddp_model.train()
         
         for bidx, samples in enumerate(self.train_dataloader):
-            data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).squeeze(dim=1).to(self.local_rank)
-            # data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank)
+            # data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).squeeze(dim=1).to(self.local_rank)
+            data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank)
             self.optimizer.zero_grad()
             output = self.ddp_model(data)
             soble_loss,mse = self.loss_object(target, output)
@@ -292,8 +292,8 @@ class ddpTrainer:
         matrics_calculation = EvaluationMetrics(postprocess_fn=self.postProcessing)
         with torch.no_grad():
             for bidx, samples in enumerate(self.test_dataloader):
-                data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).squeeze(dim=1).to(self.local_rank)
-                # data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank)
+                # data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).squeeze(dim=1).to(self.local_rank)
+                data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank)
                 pred = self.ddp_model(data)
                 soble_loss,mse = self.loss_object(target, pred)
 

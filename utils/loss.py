@@ -82,7 +82,7 @@ class FreqMse(nn.Module):
         loss_mse = nn.functional.mse_loss(pred, target)
         # Combine the losses
         loss_combined = self.alpha * loss_edge + (1-self.alpha) * loss_mse 
-        return self.alpha * loss_edge,(1-self.alpha) * loss_mse
+        return self.alpha * loss_mse,(1-self.alpha) * loss_edge
 
 # def MaxRel(original_target,original_pred):
 #     'relative loss in percentage'

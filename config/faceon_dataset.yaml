@@ -15,10 +15,10 @@ dataset:
         stats: ['min','median']
 
 model:
+  stage: 2
   seed: 1234
   epochs: 500
   alpha: 0.8
-  beta: 0.2
   resume_checkpoint: "/home/dp332/dp332/dc-su2/results/pretrained.pth"
   # resume_checkpoint: null
 
@@ -31,16 +31,16 @@ optimizer:
     weight_decay: 0
     amsgrad: false
 
-# scheduler:
-#   type: "cyclic"
-#   params:
-#     base_lr: 0.0004
-#     max_lr: 0.04
-#     step_size_up: 100
-#     step_size_down: null  # If null, step_size_down is set to step_size_up
-#     mode: "triangular"
-#     gamma: 1.0
-#     cycle_momentum: false 
+use_scheduler: true
+scheduler:
+  - type: "StepLR"
+    params:
+      step_size: 40
+      gamma: 0.1
+  - type: "CosineAnnealingLR"
+    params:
+      T_max: 50
+      eta_min: 0.001
 
 output:
   save_path: "../results/faceon"

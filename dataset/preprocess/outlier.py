@@ -109,7 +109,7 @@ class PathFind:
         return rotation_files
 
 def outlier_detection(rotation_file,dataset_name):
-    with h5.File(outlier,'r') as file:
+    with h5.File(rotation_file,'r') as file:
         v_z = np.array(file['velocity_z'])
         v_min = np.min(v_z)
         v_max = np.max(v_z)

@@ -1,1 +1,1 @@
-/home/dp332/dp332/dc-su2/dc-su2/faceon/train.hdf5
+/home/dc-su2/rds/rds-dirac-dp012/dc-su2/physical_forward/sgl_freq/grid64/Faceon/train.hdf5
