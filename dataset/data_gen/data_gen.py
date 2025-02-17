@@ -1,15 +1,15 @@
 import torch
 import json
 import gc
-import pandas             as pd
+import os
 import numpy              as np
 import h5py               as h5
 
 
-from p3droslo.model       import TensorModel
-from p3droslo.lines       import Line
-from p3droslo.haar        import Haar
-from p3droslo.utils       import planck  # CMB, big bang background
+from pomme.model       import TensorModel
+from pomme.lines       import Line
+from pomme.haar        import Haar
+from pomme.utils       import planck  # CMB, big bang background
 
 from mpi4py               import MPI
 from torch.profiler       import profile, record_function, ProfilerActivity
@@ -21,7 +21,7 @@ import argparse
 import time
 import logging
 import sys
-import math 
+import math
 def generate_random_rotation_matrix():
     """
     Generate a random rotation matrix for 3D object rotation
@@ -53,7 +53,7 @@ def generate_random_rotation_matrix():
     R = r.as_matrix() 
     return R
 
-def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
+def data_gen(logger,model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     with h5.File(model_file,'r') as f:
         position = np.array(f['geometry/points/position'])
         velocity = np.array(f['geometry/points/velocity'])* constants.c.si.value
@@ -146,16 +146,17 @@ def data_gen(model_file,line,radius,type_='faceon',mulfreq=True,model_grid=64):
     # time measurement
     start = time.time()
     img = line.LTE_image_along_last_axis(
-    density      = p3droslo_model['CO'         ],
+    abundance    = p3droslo_model['CO'         ],
     temperature  = p3droslo_model['temperature'],
     v_turbulence = p3droslo_model['v_turbulence'],
     velocity_los = p3droslo_model['velocity_z'],
     frequencies  = frequencies,
-    dx           = p3droslo_model.dx(3-1)
+    dx           = p3droslo_model.dx(3-1),
+    img_bdy      = 0.0
     )
     end = time.time()
     running_time = end - start
-    # logging.info(f'Running time: {running_time:.6} seconds')
+    logger.info(f'Running time: {running_time*1000:.6} milliseconds')
     # Avoid negative values (should probably avoid these earlier...)
     img = torch.abs(img)
     

@@ -1,7 +1,5 @@
 import os
 import numpy              as np
-import magritte.core      as magritte
-from magritte.core        import ImageType, ImagePointPosition  # Image type, point position
 from astropy              import units,constants              # Unit conversions
 import scipy as sp
 # from scipy.interpolate    import griddata           # Grid interpolation
