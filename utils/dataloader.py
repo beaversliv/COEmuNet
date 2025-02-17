@@ -298,8 +298,8 @@ class ChunkLoadingDataset(Dataset):
 
         input_tensor = torch.tensor(input_data, dtype=torch.float32)
         output_tensor = torch.tensor(output_data, dtype=torch.float32)
-        index_range = (start_idx, end_idx)
-        return input_tensor, output_tensor,file_idx,index_range
+       
+        return input_tensor, output_tensor,file_idx
     
 class MultiEpochsDataLoader(torch.utils.data.DataLoader):
 

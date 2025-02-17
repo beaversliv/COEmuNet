@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 import re
 import torch
-from collections import OrderedDict
+from collections  import OrderedDict
 import socket 
 import torch.distributed      as dist
 import h5py as h5
@@ -177,27 +177,6 @@ class HistoryShow:
   
         self.save_dir = save_dir
 
-    def img_plt(self,pkl_file):
-        img_folder = os.path.join(self.save_dir,'img/')
-        check_dir(img_folder)
-
-        data   = load_pickle(pkl_file)
-        pred   = data['or_preds']
-        target = data['or_targets']
-        maxrel_calculation = SingleMaxRel(target,pred)
-        maxrel_0 = maxrel_calculation.single_maxrel(centre_size=0)
-        maxrel_2 = maxrel_calculation.single_maxrel(centre_size=2)
-        maxrel_4 = maxrel_calculation.single_maxrel(centre_size=4)
-        maxrel_6 = maxrel_calculation.single_maxrel(centre_size=6)
-
-        for sample_idx in range(len(target)):
-            print(sample_idx)
-            save_path = os.path.join(img_folder,f'img_{sample_idx}.png')
-            if self.single:
-                self._sgl_imshow(target[sample_idx],pred[sample_idx],save_path)
-            else:
-                self._mulfreq_imshow(target[sample_idx],pred[sample_idx],maxrel_0[sample_idx],maxrel_2[sample_idx],maxrel_4[sample_idx],maxrel_6[sample_idx],save_path)
-
     def read_training_message(self,log_files):
         total_epochs = 0
         epochs = []
@@ -241,7 +220,7 @@ class HistoryShow:
                 val_loss.append(float(match.group(5)))
                 val_feature.append(float(match.group(6)))
                 val_mse.append(float(match.group(7)))
-                val_maxrel.append(float(match.group(8)))
+                val_maxrel.append(float(match.group(8))/100)
                 val_zncc.append(float(match.group(9)))
                 # Parse the nested SSIM values
                 val_ssim.append(float(match.group(10)))
@@ -255,136 +234,25 @@ class HistoryShow:
     def history_show(self,log_files): 
         history_save_path = f'{self.save_dir}/history.png'
         epochs,train_loss,val_loss,val_maxrel,val_zncc,val_ssim = self.read_training_message(log_files)
-        fig,axes = plt.subplots(1,4, figsize=(16,4))
-        axes[0].plot(epochs,train_loss, label='train')
-        axes[0].plot(epochs,val_loss,label='val')
-        axes[0].legend()
-        axes[0].set_title('Training History')
-        axes[0].set_xlabel('epoch')
-        axes[0].set_ylabel('Feature loss + MSE loss')
+        fig,axes = plt.subplots(1,2, figsize=(8,4))
+
+        axes[0].plot(epochs,train_loss,label='training loss',color='#1E88E5')
+        axes[0].plot(epochs,val_loss,label='validation loss',color='#E53935')
+        axes[0].legend(loc='upper right')
+        axes[0].set_xlabel('Epoch',fontsize=14)
+        axes[0].set_ylabel('Loss',fontsize=14)
         axes[0].grid(True)
 
-        axes[1].plot(epochs, val_maxrel)
-        axes[1].set_ylim(0,100)
-        axes[1].set_title('Val MaxRel History')
-        axes[1].set_xlabel('epoch')
+        axes[1].plot(epochs,val_maxrel,label='validation MaxRel',color='#4CAF50')
+        axes[1].plot(epochs,val_zncc,label='validation ZNCC',color='#B0B0B0')
+        axes[1].plot(epochs,val_ssim,label='validation SSIM',color='#2596be')
+        axes[1].legend()
+        axes[1].set_xlabel('Epoch',fontsize=14)
+        axes[1].set_ylabel('MaxRel/ZNCC/SSIM',fontsize=14)
         axes[1].grid(True)
 
-        axes[2].plot(epochs,val_zncc)
-        axes[2].set_title('Val ZNCC History')
-        axes[2].set_xlabel('epoch')
-        axes[2].grid(True)
-
-        axes[3].plot(epochs,val_ssim)
-        axes[3].set_title('Val SSIM History')
-        axes[3].set_xlabel('epoch')
-        axes[3].grid(True)
-        plt.tight_layout(pad=1.0)  # Adjust padding if necessary
-        plt.subplots_adjust(left=0.05, right=0.95)
+        fig.subplots_adjust(left=0.1, right=0.95, top=0.9, bottom=0.15, wspace=0.3)
         plt.savefig(history_save_path)
-
-    def _sgl_imshow(self,target,pred,save_path):
-        '''
-        single paired target and pred in original space
-        '''
-        target = target.reshape(1,64,64)
-        pred   = pred.reshape(1,64,64)
-        maxrel = np.abs(target-pred) / np.max(target, axis=0,keepdims=True) * 100
-        maxrel = maxrel[0]
-        lg_target = np.log(target[0])
-        lg_pred   = np.log(pred[0])
-        plt.rc('axes', titlesize=12)  # Title font size
-        plt.rc('axes', labelsize=10)  # Axis label font size
-        plt.rc('xtick', labelsize=8)  # X-tick font size
-        plt.rc('ytick', labelsize=8)  # Y-tick font size
-
-
-        fig, axs = plt.subplots(3,1,figsize=(5,8))
-        im1 = axs[0].imshow(lg_target,vmin=np.min(lg_target), vmax=np.max(lg_target))
-        im2 = axs[1].imshow(lg_pred,vmin=np.min(lg_target), vmax=np.max(lg_target))
-        im3 = axs[2].imshow(maxrel,vmin=np.min(maxrel), vmax=np.max(maxrel))
-
-        axs[2].text(
-                0.5, -0.15,  # Adjust position
-                f'min: {np.min(maxrel):.2f}, max: {np.max(maxrel):.2f}',  # Format min/max
-                color='black', fontsize=10, ha='center', va='top',  # Center the text
-                transform=axs[2].transAxes  # Set relative to the axis
-            )
-        fig.colorbar(im1,ax=axs[0],orientation='vertical', fraction=0.05, pad=0.1)
-        fig.colorbar(im2,ax=axs[1],orientation='vertical', fraction=0.05, pad=0.1)
-        fig.colorbar(im3,ax=axs[2],orientation='vertical', fraction=0.05, pad=0.1)
-
-        axs[0].set_ylabel('target')
-        axs[1].set_ylabel('pred')
-        axs[2].set_ylabel('maxrel(%)')
-        plt.savefig(save_path,bbox_inches='tight')
-        plt.close() 
-
-    def _mulfreq_imshow(self,target,pred,maxrel_0,maxrel_2,maxrel_4,maxrel_6,save_path):
-        '''
-        input: single paried target and pred, in original space
-        '''
-
-        target = target.reshape(7,64,64)
-        pred   = pred.reshape(7,64,64)
-
-
-        lg_target = np.log(target)
-        lg_pred   = np.log(pred)
-
-        plt.rc('axes', titlesize=16)  # Title font size
-        plt.rc('axes', labelsize=15)  # Axis label font size
-        plt.rc('xtick', labelsize=12)  # X-tick font size
-        plt.rc('ytick', labelsize=12)  # Y-tick font size
-
-        rows = 6
-        colms = 7
-        fig,axes = plt.subplots(rows,colms,figsize=(34,18))
-        for colm in range(colms):
-            img1 = axes[0,colm].imshow(lg_target[colm],vmin=np.min(lg_target[colm]), vmax=np.max(lg_target[colm]))
-            axes[0,colm].set_title(rf"frequency $\nu_{{{colm + 13}}}$", fontsize=16)
-            
-            img2 = axes[1,colm].imshow(lg_pred[colm],vmin=np.min(lg_target[colm]), vmax=np.max(lg_target[colm]))
-            img3 = axes[2,colm].imshow(maxrel_0[colm],vmin=np.min(maxrel_0[colm]), vmax=np.max(maxrel_0[colm]))
-            img4 = axes[3,colm].imshow(maxrel_2[colm],vmin=np.min(maxrel_2[colm]), vmax=np.max(maxrel_2[colm]))
-            img5 = axes[4,colm].imshow(maxrel_4[colm],vmin=np.min(maxrel_4[colm]), vmax=np.max(maxrel_4[colm]))
-            img6 = axes[5,colm].imshow(maxrel_6[colm],vmin=np.min(maxrel_6[colm]), vmax=np.max(maxrel_6[colm]))
-
-            # axes[2, colm].text(
-            #     0.5, 1.05,  # Adjust position
-            #     f'min: {np.min(maxrel_0[colm]):.2f}, max: {np.max(maxrel_0[colm]):.2f}',  # Format min/max
-            #     color='black', fontsize=10, ha='center', va='bottom',  # Center the text
-            #     transform=axes[2, colm].transAxes  # Set relative to the axis
-            # )
-            # axes[3, colm].text(
-            #     0.5, 1.05,  # Adjust position
-            #     f'min: {np.min(maxrel_0[colm]):.2f}, max: {np.max(maxrel_0[colm]):.2f}',  # Format min/max
-            #     color='black', fontsize=10, ha='center', va='bottom',  # Center the text
-            #     transform=axes[2, colm].transAxes  # Set relative to the axis
-            # )
-            # axes[4, colm].text(
-            #     0.5, 1.05,  # Adjust position
-            #     f'min: {np.min(maxrel_0[colm]):.2f}, max: {np.max(maxrel_0[colm]):.2f}',  # Format min/max
-            #     color='black', fontsize=10, ha='center', va='bottom',  # Center the text
-            #     transform=axes[2, colm].transAxes  # Set relative to the axis
-            # )
-            fig.colorbar(img1, ax=axes[0, colm], orientation='vertical', fraction=0.05, pad=0.04)
-            fig.colorbar(img2, ax=axes[1, colm], orientation='vertical', fraction=0.05, pad=0.04)
-            fig.colorbar(img3, ax=axes[2, colm], orientation='vertical', fraction=0.05, pad=0.04)
-            fig.colorbar(img4, ax=axes[3, colm], orientation='vertical', fraction=0.05, pad=0.04)
-            fig.colorbar(img5, ax=axes[4, colm], orientation='vertical', fraction=0.05, pad=0.04)
-            fig.colorbar(img6, ax=axes[5, colm], orientation='vertical', fraction=0.05, pad=0.04)
-
-        axes[0,0].set_ylabel('target')
-        axes[1,0].set_ylabel('pred')
-        axes[2,0].set_ylabel('maxrel(%)')
-        axes[3,0].set_ylabel('maxrel\nexclude centre 2x2 (%)')
-        axes[4,0].set_ylabel('maxrel\nexlude centre 4x4 (%)')
-        axes[5,0].set_ylabel('maxrel\nexclude cetre 6x6 (%)')
-        # plt.subplots_adjust(wspace=0.1, hspace=0.1)  # Reduce space between subplots
-        plt.tight_layout(pad=0.1)
-        plt.savefig(save_path)
-        plt.close()
                 
 class Logging:
     def __init__(self, file_dir:str, file_name:str):
@@ -404,47 +272,105 @@ class Logging:
 
             with open(self.log_file, 'a') as f:  # a for append to the end of the file.
                 print(message, file=f)
-def mulfreq_imshow(target,pred,path):
-        '''
-        input: single paried target and pred, in original space
-        '''
-        target = target.reshape(7,64,64)
-        pred   = pred.reshape(7,64,64)
-
-        maxrel_0 = np.abs(target - pred) / np.max(target,axis=0,keepdims=True) * 100
-
-        lg_target = np.log(target)
-        lg_pred   = np.log(pred)
-
-        plt.rc('axes', titlesize=13)  # Title font size
-        plt.rc('axes', labelsize=13)  # Axis label font size
-        plt.rc('xtick', labelsize=8)  # X-tick font size
-        plt.rc('ytick', labelsize=8)  # Y-tick font size
-
-        rows = 3
-        colms = 7
-        fig,axes = plt.subplots(rows,colms,figsize=(25,10))
-        for colm in range(colms):
-            img1 = axes[0,colm].imshow(lg_target[colm],vmin=np.min(lg_target[colm]), vmax=np.max(lg_target[colm]))
-            axes[0,colm].set_title(rf"frequency $\nu_{{{colm + 13}}}$")
-            
-            img2 = axes[1,colm].imshow(lg_pred[colm],vmin=np.min(lg_target[colm]), vmax=np.max(lg_target[colm]))
-            img3 = axes[2,colm].imshow(maxrel_0[colm],vmin=np.min(maxrel_0[colm]), vmax=np.max(maxrel_0[colm]),cmap='coolwarm')
-            # axes[2, colm].text(
-            #     0.5, 1.05,  # Adjust position
-            #     f'min: {np.min(maxrel_0[colm]):.2f}, max: {np.max(maxrel_0[colm]):.2f}',  # Format min/max
-            #     color='black', fontsize=10, ha='center', va='bottom',  # Center the text
-            #     transform=axes[2, colm].transAxes  # Set relative to the axis
-            # )
-
-            fig.colorbar(img1, ax=axes[0, colm], orientation='vertical', fraction=0.05, pad=0.04)
-            fig.colorbar(img2, ax=axes[1, colm], orientation='vertical', fraction=0.05, pad=0.04)
-            fig.colorbar(img3, ax=axes[2, colm], orientation='vertical', fraction=0.05, pad=0.04)
-        # fig.suptitle(f'sample has maxrel {np.mean(maxrel_0)}%')
-        axes[0,0].set_ylabel('target')
-        axes[1,0].set_ylabel('pred')
-        axes[2,0].set_ylabel('maxrel(%)')
-        # plt.subplots_adjust(wspace=0.1, hspace=0.1)  # Reduce space between subplots
-        plt.tight_layout(pad=0.1)
+def zoomin_imshow(target,pred):
+    '''
+    input: single paried target and pred, in original space
+    '''
+    target = target.reshape(7,64,64)
+    pred   = pred.reshape(7,64,64)
+    lg_target = np.log(target)
+    lg_pred   = np.log(pred)
    
-        plt.savefig(path)
+
+    plt.rc('axes', titlesize=13)  # Title font size
+    plt.rc('axes', labelsize=13)  # Axis label font size
+    plt.rc('xtick', labelsize=18)  # X-tick font size
+    plt.rc('ytick', labelsize=18)  # Y-tick font size
+
+    rows = 2
+    colms = 7
+    fig, axes = plt.subplots(rows, colms, figsize=(30, 8),dpi=100)
+
+    for row in range(rows):
+        for colm in range(colms):
+            img = axes[row, colm].imshow(
+                lg_target[colm][15:15+32, 18:18+32] if row == 0 else lg_pred[colm][15:15+32, 18:18+32]
+            )
+
+            # Remove unnecessary axes
+            if row == 0 and colm == 0:
+                axes[row, colm].set_xticks([])  # Keep y-axis but remove x-axis
+            elif row == 0:
+                axes[row, colm].axis("off")  # Remove both axes for first-row images except (0,0)
+            elif row == 1 and colm != 0:
+                axes[row, colm].set_yticks([])  # Remove y-axis for second-row images except (1,0)
+
+            # Add colorbars only for the last column in each row
+            if colm == colms - 1:
+                divider = make_axes_locatable(axes[row, colm])
+                cax = divider.append_axes("right", size="5%", pad=0.2)  # Reduce padding
+                fig.colorbar(img, cax=cax, orientation="vertical")
+
+    # Ensure no spacing between images
+    plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02, wspace=0.02, hspace=0.02)
+
+    plt.show()
+
+def mulfreq_imshow(target,pred,path):
+    '''
+    input: single paried target and pred, in original space
+    '''
+    target = target.reshape(7,64,64)
+    pred   = pred.reshape(7,64,64)
+    lg_target = np.log(target)
+    lg_pred   = np.log(pred)
+    maxrel = np.abs(target - pred) / np.max(target,axis=0,keepdims=True)*100
+    # lg_target = lg_target[[0,3,6],...]
+    # lg_pred = lg_pred[[0,3,6],...]
+    plt.rc('axes', titlesize=13)  # Title font size
+    plt.rc('axes', labelsize=13)  # Axis label font size
+    plt.rc('xtick', labelsize=18)  # X-tick font size
+    plt.rc('ytick', labelsize=18)  # Y-tick font size
+
+    rows = 3
+    colms = 7
+    fig, axes = plt.subplots(rows, colms, figsize=(32,13),dpi=50)
+
+    for row in range(rows):
+        for colm in range(colms):
+            if row == 0:
+                img = axes[row, colm].imshow(lg_target[colm])
+            elif row == 1:
+                img = axes[row, colm].imshow(lg_pred[colm])
+            else:
+                img = axes[row, colm].imshow(maxrel[colm],cmap='coolwarm')
+
+            # Remove unnecessary axes
+            if row == 0 and colm == 0:
+                axes[row, colm].set_xticks([])  # Keep y-axis but remove x-axis
+            elif row == 0:
+                axes[row, colm].axis("off")  # Remove both axes for first-row images except (0,0)
+            elif row == 1 and colm == 0:
+                axes[row, colm].set_xticks([])
+            elif row == 1:
+                axes[row, colm].axis("off")
+
+            elif row == 2 and colm != 0:
+                axes[row, colm].set_yticks([])  # Remove y-axis for second-row images except (1,0)
+
+            # Add colorbars only for the last column in each row
+            if colm == colms - 1:
+                if row !=2:
+                    divider = make_axes_locatable(axes[row, colm])
+                    cax = divider.append_axes("right", size="5%", pad=0.08)  # Reduce padding
+                    fig.colorbar(img, cax=cax, orientation="vertical")
+                else:
+                    divider = make_axes_locatable(axes[row, colm])
+                    cax = divider.append_axes("right", size="5%", pad=0.08)  # Adjust size and padding
+                    cbar = fig.colorbar(img, cax=cax, orientation="vertical")
+                    cbar.ax.yaxis.set_major_formatter(PercentFormatter(xmax=100))
+
+    # Ensure no spacing between images
+    plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02, wspace=0.02, hspace=0.02)
+
+    plt.savefig(path)

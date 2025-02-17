@@ -72,25 +72,25 @@ def main(config):
         logger.info(f"Trainable parameters: {trainable_params}")
 
     
-    # file_path = config['model'].get('resume_checkpoint',None)
-    # # load checkpoint that is unwrapped with ddp, so no module.
-    # checkpoint_loading = LoadCheckPoint(
-    #     learning_model=model,
-    #     optimizer=None,
-    #     scheduler=None,
-    #     file_path=file_path,
-    #     stage=config['model']['stage'],
-    #     logger=logger,
-    #     local_rank=f'cuda:{local_rank}',
-    #     ddp_on=False
-    # )
-    # checkpoint_loading.load_checkpoint(model_only=True)
+    file_path = config['model'].get('resume_checkpoint',None)
+    # load checkpoint that is unwrapped with ddp, so no module.
+    checkpoint_loading = LoadCheckPoint(
+        learning_model=model,
+        optimizer=None,
+        scheduler=None,
+        file_path=file_path,
+        stage=config['model']['stage'],
+        logger=logger,
+        local_rank=f'cuda:{local_rank}',
+        ddp_on=False
+    )
+    checkpoint_loading.load_checkpoint(model_only=True)
     # Wrap the model with DDP
     ddp_model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
 
     optimizer_params = config['optimizer']['params']
     optimizer = torch.optim.Adam(ddp_model.parameters(), **optimizer_params)
-    # checkpoint_loading.optimizer = optimizer
+    checkpoint_loading.optimizer = optimizer
 
     if not config['use_scheduler']:
         scheduler = None
@@ -120,7 +120,7 @@ def main(config):
     # scheduler = StepLR(optimizer,step_size=30,gamma=0.1)
     loss_object = FreqMse(alpha=config['model']['alpha'])
     # Create the Trainer instance
-    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler)
+    trainer = ddpTrainer(ddp_model, train_dataloader, test_dataloader, optimizer,loss_object,config,rank,local_rank, world_size,logger,scheduler=None)
 
     start = time.time()
     if rank == 0:
@@ -131,17 +131,8 @@ def main(config):
     dist.barrier()
     if rank == 0:
         logger.info(f'running time: {(end - start) / 3600:.2f} hours')
-    # trainer.save(True)
 
-    # if rank == 0:
-    #     log_file = config['output']['log_file']
-    #     pkl_file = config['output']['pkl_file'] # only saved 20 target and pred
-    #     save_dir = config['ouput']['history_img']
-    #     img_dir  = config['output']['img_dir']
-    #     history_plot = HistoryShow(log_file,pkl_file)
-    #     history_plot.history_show(save_dir,single=True)
-    #     history_plot.single_impl(img_dir)
-    # # Clean up
+    # Clean up
     cleanup()
 if __name__ == '__main__':
     args = parse_args()

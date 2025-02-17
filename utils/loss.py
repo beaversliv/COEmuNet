@@ -292,8 +292,8 @@ class MaxRel:
 
         maxrel_per_sample = torch.mean(rel_error, dim=(1, 2, 3)) * 100  # Average over dimensions and convert to percentage
         # Calculate median of maxrel across all samples
-        maxrel = torch.median(maxrel_per_sample)
-        return maxrel
+        # maxrel = torch.median(maxrel_per_sample)
+        return maxrel_per_sample
 
 
 class SingleMaxRel:
