@@ -42,7 +42,7 @@ scheduler:
       T_max: 50
       eta_min: 0.001
 
-
+ddp_on: False
 output:
   save_path: "results/mulfreq"
   log_file: "log_file.txt"

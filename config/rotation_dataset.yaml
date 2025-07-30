@@ -33,12 +33,18 @@ optimizer:
     weight_decay: 0.0
     amsgrad: false
 
-# scheduler:
-#   type: "step"
-#   params:
-#     step_size: 200
-#     gamma: 0.1
-
+use_scheduler: true
+scheduler:
+  - type: "StepLR"
+    params:
+      step_size: 40
+      gamma: 0.1
+  - type: "CosineAnnealingLR"
+    params:
+      T_max: 50
+      eta_min: 0.001
+      
+ddp_on: False
 output:
   save_path: "../results/rotation"
   log_file: "log_file.txt"

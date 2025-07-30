@@ -16,10 +16,8 @@ import logging
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
     
-class Trainer:
+class singleTrainer:
     def __init__(self,model,loss_object,optimizer,train_dataloader,test_dataloader,config,device,logger,scheduler=None):
-        print("Initializing Trainer...")
-        start_time = time.time()
         self.model = model
         self.loss_object = loss_object
         self.optimizer   = optimizer
@@ -34,9 +32,7 @@ class Trainer:
         statistics_path = config['dataset']['statistics']['path']
         statistics_values = config['dataset']['statistics']['values']
         self.dataset_stats  = load_statistics(statistics_path,statistics_values)
-        init_duration = time.time() - start_time
-        print(f"Initialization completed in {init_duration:.2f} seconds.")
-    
+      
     def train(self):
         total_loss = 0.
         total_soble = 0.
@@ -227,8 +223,8 @@ class Trainer:
         return y
 
  ### train step ###       
-class ddpTrainer:
-    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,local_rank,world_size,logger,scheduler=None):
+class Trainer:
+    def __init__(self,ddp_model,train_dataloader,test_dataloader,optimizer,loss_object,config,rank,device,world_size,logger,scheduler):
         print("Initializing Trainer...")
         start_time = time.time()
         self.ddp_model        = ddp_model
@@ -237,7 +233,7 @@ class ddpTrainer:
 
         self.config           = config
         self.rank             = rank # global rank, world_size -1, distinguish each process
-        self.local_rank       = local_rank
+        self.device       = device
         self.world_size       = world_size # num GPUs
         # Define the optimizer for the DDP model
         self.optimizer        = optimizer
@@ -262,7 +258,7 @@ class ddpTrainer:
         
         for bidx, samples in enumerate(self.train_dataloader):
             # data, target = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).squeeze(dim=1).to(self.local_rank)
-            data, target,_ = samples[0].squeeze(0).to(self.local_rank), samples[1].squeeze(0).to(self.local_rank),samples[2]
+            data, target,_ = samples[0].squeeze(0).to(self.device), samples[1].squeeze(0).to(self.device),samples[2]
             self.optimizer.zero_grad()
             output = self.ddp_model(data)
             soble_loss,mse = self.loss_object(target, output)
@@ -283,9 +279,9 @@ class ddpTrainer:
     def test(self):
         self.ddp_model.eval()
       
-        L = []
-        SL = []
-        MSE = []
+        total_loss = 0.
+        total_mse_loss, total_freq_loss = 0.0, 0.0
+
         relative_loss_epoch = []
         zncc_epoch = []
         ssim_epoch = []
@@ -304,64 +300,44 @@ class ddpTrainer:
                 relative_loss_epoch.append(metrics['maxrel'])
                 zncc_epoch.append(metrics['zncc'])
                 ssim_epoch.append(metrics['ssim'])
-                L.append(loss.detach())
-                SL.append(soble_loss.detach())
-                MSE.append(mse.detach())
-
+                batch_loss += loss.sum()
+                batch_mse += mse.sum()
+                batch_freq_loss += soble_loss.sum()
                 if bidx % 50 == 0:
                     self.logger.info(f'Test batch [{bidx}/{len(self.test_dataloader)}]: freq loss: {soble_loss:.4f}, mse:{mse:.4f}, total loss:{loss:.4f}',gpu_rank=self.rank)
-        # maxrel in certain rank
-        maxrel = torch.stack(relative_loss_epoch)
-        # ssim in certain rank
-        zncc   = torch.stack(zncc_epoch)
-        ssim   = torch.stack(ssim_epoch)
-        L = torch.stack(L)
-        val_loss = torch.mean(L)
-        SL = torch.stack(SL)
-        val_feature = torch.mean(SL)
-        MSE = torch.stack(MSE)
-        val_mse = torch.mean(MSE)
+        if dist.is_initialized():
+            total_loss_tensor = torch.tensor(total_loss, device=self.device)
+            dist.all_reduce(total_loss_tensor, op=dist.ReduceOp.SUM)
+            total_loss = total_loss_tensor.item()
 
-        # Aggregate test losses
-        dist.all_reduce(val_loss, op=torch.distributed.ReduceOp.SUM)
-        val_epoch_loss = val_loss/self.world_size
+            total_mse_tensor = torch.tensor(total_mse_loss, device=self.device)
+            dist.all_reduce(total_mse_tensor, op=dist.ReduceOp.SUM)
+            total_mse_loss = total_mse_tensor.item()
 
-        dist.all_reduce(val_feature, op=torch.distributed.ReduceOp.SUM)
-        val_epoch_soble = val_feature/self.world_size
+            total_freq_tensor = torch.tensor(total_freq_loss, device=self.device)
+            dist.all_reduce(total_freq_tensor, op=dist.ReduceOp.SUM)
+            total_freq_loss = total_freq_tensor.item()
 
-        dist.all_reduce(val_mse, op=torch.distributed.ReduceOp.SUM)
-        val_epoch_mse = val_mse/self.world_size
+        val_epoch_loss = total_loss / len(self.test_dataloader)
+        val_epoch_mse  = total_mse_loss / len(self.test_dataloader)
+        val_epoch_soble = total_freq_loss/len(self.test_dataloader)
 
-        all_relative_loss = [torch.zeros_like(maxrel) for _ in range(self.world_size)]
-        dist.all_gather(all_relative_loss, maxrel)
-        all_zncc = [torch.zeros_like(zncc) for _ in range(self.world_size)]
-        dist.all_gather(all_zncc, zncc)
-        all_ssim = [torch.zeros_like(ssim) for _ in range(self.world_size)]
-        dist.all_gather(all_ssim, ssim)
-
-        if dist.get_rank() == 0:
-            # Concatenate along the first dimension to get a single tensor with data from all ranks
-            all_relative_loss = torch.concat(all_relative_loss, dim=0)  # Shape: (total_samples_across_all_ranks, 1)
-            # Calculate the median of the medians
-            val_maxrel = torch.median(all_relative_loss)
-            all_zncc = torch.concat(all_zncc, dim=0) 
-            all_ssim = torch.concat(all_ssim, dim=0) 
-
-            val_zncc = torch.mean(all_zncc)
-            val_ssim = torch.mean(all_ssim)
+        # Aggregate other metrics properly
+        if dist.is_initialized():
+            val_zncc = self.aggregate_metric(torch.stack(zncc_epoch), reduction="mean", gather=True)
+            val_ssim = self.aggregate_metric(torch.stack(ssim_epoch), reduction="mean", gather=True)
+            val_maxrel = self.aggregate_metric(torch.stack(relative_loss_epoch), reduction="median", gather=True)
         else:
-            val_maxrel = None
-            val_zncc,val_ssim =None,None
-        # avg_zncc   = torch.stack(ssim_epoch,dim=0)
-        # avg_ssim   = torch.stack(ssim_epoch,dim=0)
-        # dist.all_reduce(avg_zncc, op=dist.ReduceOp.SUM)
-        # val_zncc = avg_zncc / dist.get_world_size()
-        # val_zncc = val_zncc.mean(dim=0)
+            val_zncc = torch.mean(torch.stack(zncc_epoch))
+            val_ssim = torch.mean(torch.stack(ssim_epoch))
+            val_maxrel = torch.median(torch.stack(relative_loss_epoch))
 
-        # dist.all_reduce(avg_ssim, op=dist.ReduceOp.SUM)
-        # val_ssim = avg_ssim / dist.get_world_size()
-        # val_ssim = val_ssim.mean(dim=0) 
-
+        # maxrel in certain rank
+        val_maxrel = torch.stack(relative_loss_epoch)
+        # ssim in certain rank
+        val_zncc   = torch.stack(zncc_epoch)
+        val_ssim   = torch.stack(ssim_epoch)
+        
         results = {
             'val_loss': val_epoch_loss,
             'val_feature':val_epoch_soble,
@@ -429,40 +405,6 @@ class ddpTrainer:
             },model_path)
             self.logger.info(f"Model saved at epoch {epoch}\n")
 
-    def eval(self):
-        dist.barrier()
-        if self.rank == 0:
-            self.ddp_model.eval()
-            P = []
-            T = []
-            with torch.no_grad():
-                for bidx, samples in enumerate(self.test_dataloader):
-                    data, target = Variable(samples[0]).to(self.local_rank), Variable(samples[1]).to(self.local_rank)
-                    pred = self.ddp_model(data)
-                    P.append(pred.detach().cpu().numpy())
-                    T.append(target.detach().cpu().numpy())
-            P = np.vstack(P)
-            T = np.vstack(T)
-            original_target = self.postProcessing(P)
-            original_pred = self.postProcessing(T)
-            print(f'initial relative loss {MaxRel(original_target,original_pred):.5f}%')
-
-    def save(self, save_hist=False):
-        if self.rank == 0:
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % self.local_rank}
-            model_path = os.path.join(self.config['output']['save_path'], self.config['output']['model_file'])
-            self.ddp_model.load_state_dict(torch.load(model_path, map_location=map_location))
-
-            val_loss,val_feature,val_mse, val_maxrel,val_ssim = self.test()
-            
-            self.logger.info('Test Epoch: {} Loss: {:.4f}\n'.format(self.config["model"]["epochs"], val_loss.cpu().item()))
-            self.logger.info('best loss', self.best_loss)
-            self.logger.info(f'relative loss {val_maxrel:.5f}%')
-            for freq in range(len(val_ssim)):
-                self.logger.info(f'frequency {freq + 1} has ssim {val_ssim:.4f}')
-
-            # # Plot and save images
-            # img_plt(all_targets, all_preds, path=path)
     def postProcessing(self,y):
         if self.config['dataset']['name'] =='mulfreq':
             max_   = self.dataset_stats['intensity']['max']
@@ -474,7 +416,31 @@ class ddpTrainer:
             y = y*median + min_
         y = torch.exp(y)
         return y
+    def aggregate_metric(self,metric_tensor,reduction='mean',gather=False):
+        '''
+        Aggregates a given metric tensor across all DDP ranks.
 
+        Args:
+            metric_tensor (torch.Tensor): The tensor to aggregate.
+            reduction (str): "mean" for averaging, "sum" for summation, "median" for median aggregation.
+            gather (bool): Whether to use `all_gather` instead of `all_reduce` (for full dataset statistics).
+        Returns:
+            torch.Tensor: Aggregated result (scalar).
+        '''
+        if gather:
+            # Gather values from all processes
+            gathered_tensors = [torch.zeros_like(metric_tensor) for _ in range(self.world_size)]
+            dist.all_gather(gathered_tensors, metric_tensor)
+            gathered_tensors = torch.cat(gathered_tensors, dim=0)  # Combine all values
+
+            if reduction == "mean":
+                return torch.mean(gathered_tensors)
+            elif reduction == "median":
+                return torch.median(gathered_tensors)
+        else:
+            # Directly reduce using sum or mean
+            dist.all_reduce(metric_tensor, op=dist.ReduceOp.SUM)
+            return metric_tensor / self.world_size
     def per_sample_eval(self):
         self.ddp_model.eval()
 

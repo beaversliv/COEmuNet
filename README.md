@@ -1,53 +1,67 @@
-# Project title
-The goal of this project is to build a surrogate model of [P3DROSLO](https://github.com/Magritte-code/pomme) to slove the forward problem of Radiative Transfer Equation without scattering effect.
+# Emulate CO Line Radiative Transfer with Deep Learning
+PyTorch impelementation to build a surrogate model to emulate CO line radiation transport using an asymmetric 3D Residual Neural Network based autoencoder (-3DResAE), specifically trained to create synthetic observations of the atmospheres of evolved stars. This is accomplished by a data-driven approach, providing physics quantities - Velocity along z-axis, Temperature and number of density as input, synthetic observations are constructed from arbitory observation direction and multiple frequencies.
 
-Frederik currently works on the paper Probabilistic 3D-Reconstruction of Spectral Line Observations (p3droslo) which first implements the forward function in PyTorch and benefits from automatic differentiable functionality and will then solves the inverse problem of reconstructing a model. Presently, the PyTorch implementation of the forward problem in this study affords Shiqi the opportunity to generate simulated data needed to train a network.
+<p align="center">
+    <img align="middle" src="./assets/resnet.png" alt="3DResAE architecture" width="900" height="400" />
+</p>
+<p align="center">
+    <img align="middle" src="./assets/mulfreq1.png" alt="simulated results 1" width=460 height="200"/>
+</p>
 
-## Requirements
-- Python 3.12.4
-- Packages
-    ```
-    pip install -r requirements.txt
-    ```
-## Data Generation
-We have three types of data: single direction dataset, multi directions dataset and multi frequencies datset.
-- Generate single direction dataset
+### Setup
+Clone our repository
+```
+git clone https://github.com/beaversliv/COEmuNet.git
+cd COEmuNet
+```
+and run the following command to install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+## Datset
+The hydrodynamical models were provided by Jan Bolte and were generated using the [Adaptive Mesh Refinement Versatile Advection Code](https://amrvac.org/). The dataset was generated from [Pomme](https://github.com/Magritte-code/pomme) utilizing its forward line formation for simplicity. The data underlying this repo will be shared on reasonable request
+to the corresponding author.
+
+### Data Generation
+We have three types of data: faceon dataset ($n_{\nu}=1,\hat{n}=(0,0,1)$), rotation dataset ($n_{\nu}=1,\hat{n}=(x,y,z)$) and multiple frequencies datset ($n_{\nu}=7,\hat{n}=(x,y,z)$).
+- Generate faceon dataset
     ```
     python /physical_informed/data/data_gen/data_gen.py \
         --type original \
         -- model_grid 64 --num_rotations 100
     ```
-- Generate multi directions dataset
+- Generate rotation dataset
     ```
     python /physical_informed/data/data_gen/data_gen.py \
         --type rotation \
         -- model_grid 64 --num_rotations 100
     ```
-- Generate multi frequencies dataset
+- Generate multiple frequencies dataset
     ```
     python /physical_informed/data/data_gen/data_gen.py \
         --type rotation \
         -- model_grid 64 --num_rotations 100 --mulfreq
     ```
 ## Train a 3DResNet based autoencoder
-The configurations for different datasets are written as 
-`/config/faceon_dataset.yaml`,\
-`/config/rotation_dataset.yaml`,\
-`/config/mulfreq_dataset.yaml`.
-- Take single direction case for example:
+The configurations for different datasets are written as `/config/faceon_dataset.yaml`, `/config/rotation_dataset.yaml` and `/config/mulfreq_dataset.yaml`.
+- Take faceon case for example:
     ```
-    python single.py --config /config/faceon_dataset.yaml
+    python main.py --config /config/faceon_dataset.yaml
     ```
 -  Enable Multi-GPU training:
     ```
-    python ddp.py --config /config/faceon_dataset.yaml
+    python main.py --config /config/faceon_dataset.yaml --ddp_on True
     ```
 - Overwrite arguments
     ```
-    python ddp.py --config /config/faceon_dataset.yaml \
+    python main.py --config /config/faceon_dataset.yaml \
         --batch_size 128 --seed 1234 --lr 0.004 \
         --epochs 500 --alpha 0.8 --beta 0.2 \
         --save_path <custom directory>
     ```
-## Reproducing Experiment
-The checkpoint can be downloaded from my [drive](https://drive.google.com/drive/u/0/folders/1fd_qnxDGi7ToZFCRMursole7MeHhk-QR)
+## Pretrained Models
+Download the pre-trained COEmuNet surrogates
+```bash
+bash download_checkpoints.sh
+```

@@ -9,3 +9,11 @@ p3droslo==0.0.15
 astropy==6.1.1
 mpi4py==3.1.4
 pyyaml==6.0.2
+matplotlib
+ruamel.yaml
+seaborn
+pillow
+pomme
+mpi4py
+h5py
+astropy

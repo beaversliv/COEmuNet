@@ -12,34 +12,6 @@ def str_to_bool(value):
     else:
         raise argparse.ArgumentTypeError(f"Boolean value expected. Got {value}.")
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default='config/mulfreq_dataset.yaml', help='Path to the YAML configuration file')
-    parser.add_argument('--grid',type=int,choices=[32,64,128],help='grid of hydro model:[32,64,128]')
-    parser.add_argument('--batch_size', type=int, help='Override batch size')
-    parser.add_argument('--seed', type=int, help='Override seed')
-
-    parser.add_argument('--lr', type=float)
-    parser.add_argument('--epochs', type=int)
-    parser.add_argument('--alpha', type=float, help='weight for MSE ,then (1-alpha) is the weight for frequency loss')
-    parser.add_argument('--stage',type=int,choices=[1,2],help='stage 1: start from pretrained faceon model; stage 2: load whole model')
-    parser.add_argument('--resume_checkpoint',type=str,help='checkpoint path')
-
-    parser.add_argument("--use_scheduler", type=str_to_bool, default=None, help="Enable or disable the scheduler")
-    parser.add_argument("--scheduler_type", type=str, choices=["StepLR","CosineAnnealingLR"], default="StepLR", help="Override scheduler type (e.g., stepLR, cosineAnnealingLR)")
-    parser.add_argument("--step_size", type=int, default=50, help="Step size for StepLR")
-    parser.add_argument("--gamma", type=float, default=0.1, help="Gamma value for StepLR")
-    parser.add_argument("--T_max", type=int, default=20, help="Maximum number of iterations for CosineAnnealingLR")
-    
-    parser.add_argument('--save_path', type=str,help='path for history.png, history.pkl and model.pth')
-    parser.add_argument('--log_file', type=str,help='training history')
-    parser.add_argument('--model_file', type=str,help='saved model name')
-    parser.add_argument('--pkl_file', type=str,help='saved target and pred in pkl')
-    parser.add_argument('--history_img', type=str,help='train test value vs epoch, history.png')
-    parser.add_argument('--img_dir', type=str,help='save target img vs pred img in which dir')
-    
-    args = parser.parse_args()
-    return args
 def load_config(config_path):
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
@@ -61,6 +33,12 @@ def merge_config(args, config):
         config['model']['stage'] = args.stage
     if args.resume_checkpoint is not None:
         config['model']['resume_checkpoint'] = args.resume_checkpoint
+
+    config["use_checkpoint"] = args.use_checkpoint if args.use_checkpoint is not None else config.get("use_checkpoint", True)
+    if not config["use_checkpoint"]:
+        config['resume_checkpoint'] = None
+    else:
+        config['resume_checkpoint'] = args.resume_checkpoint
 
     config["use_scheduler"] = args.use_scheduler if args.use_scheduler is not None else config.get("use_scheduler", True)
 
@@ -92,6 +70,7 @@ def merge_config(args, config):
         # Replace config["scheduler"] with the selected scheduler
         config["scheduler"] = scheduler_config
     
+    config["ddp_on"] = args.ddp_on if args.ddp_on is not None else config.get("ddp_on", True)
     if args.save_path is not None:
         config['output']['save_path'] = args.save_path
     if args.log_file is not None:
@@ -108,7 +87,19 @@ def merge_config(args, config):
     if 'optimizer' in config and config['optimizer']['type'] == 'adam':
         if args.lr:
             config['optimizer']['params']['lr'] = args.lr
-    config = OrderedDict(config)
-    return config
+    # clean config with only selected scheduler + sampling
+    clean_config = {
+        "model": config.get("model", {}),
+        "optimizer": config.get("optimizer", {}),
+        "scheduler": config["scheduler"] if config.get("use_scheduler", True) else None,
+        "dataset": config.get("dataset", {}),
+        "output": config.get("output", {}),
+        "ddp_on": config.get("ddp_on", True),
+        "use_checkpoint":config.get("use_checkpoint", True),
+        "resume_checkpoint":config["resume_checkpoint"] if config.get("use_checkpoint", True) else None
+    }
+
+    clean_config = OrderedDict(clean_config)
+    return clean_config
 
 
